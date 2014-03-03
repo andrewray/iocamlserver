@@ -44,20 +44,9 @@ let empty_notebook = "
 let kernel_id_message = "
 {
     \"kernel_id\":\"" ^ kernel_id ^ "\",
-    \"ws_url\":\"\"
+    \"ws_url\":\"ws://127.0.0.1:8890\"
 }
 "
-
-(*
-let is_prefix prefix of' = 
-    let len = String.length prefix in
-    (len <= String.length of') && 
-    (String.sub of' 0 len = prefix)
-
-let split_by_prefix prefix str = 
-    let plen,slen = String.(length prefix, length str) in
-    String.sub str 0 plen, String.sub str plen (slen-plen)
-*)
 
 let header typ = 
     let h = Header.init () in
@@ -72,16 +61,6 @@ let header_css = header "text/css"
 let header_javascript = header "application/javascript"
 let header_json = header "application/json"
 let header_font = header "application/x-font-woff"
-
-(* we stop serving here, try and get the response as close to ipython as possible *)
-(*
-let respond_not_found = 
-    let message = Cow.Html.to_string 
-        <:html< <html><title>404: Not Found</title>
-                <body>404: Not Found</body></html> >>
-    in
-    fun () -> Server.respond_string ~status:`Not_found ~headers:header_html ~body:message ()
-*)
 
 let header_of_extension filename = 
     if Filename.check_suffix filename ".js" then header_javascript
@@ -100,6 +79,7 @@ let header_of_extension filename =
  /kernels/<guid>/restart|interrupt - restart/interrupt kernel
  /kernels/<guid>/shell|iopub|stdin - websocket
 *)
+
 let kernel_response path =
     Server.respond_string ~status:`OK (*~headers:header_html*) ~body:kernel_id_message ()
 
@@ -112,11 +92,6 @@ let kernel_response path =
  /notebooks/<guid>/checkpoints
  /notebooks/<guid>/checkpoints/<id>
 
-*)
-
-(*
-let notebook_response path = 
-    Server.respond_string ~status:`OK ~body:empty_notebook ()
 *)
 
 (* root messages 
@@ -152,125 +127,91 @@ module Path_messages = struct
     let re_static = compile static
 
     type message =
-        | Static
+        [ `Static
  
-        | Root
-        | Root_guid
-        | Root_new
-        | Root_copy
-        | Root_name
+        | `Root
+        | `Root_guid
+        | `Root_new
+        | `Root_copy
+        | `Root_name
         
-        | Notebooks
-        | Notebooks_guid of string
-        | Notebooks_checkpoint of string
-        | Notebooks_checkpoint_id of string * string
+        | `Notebooks
+        | `Notebooks_guid of string
+        | `Notebooks_checkpoint of string
+        | `Notebooks_checkpoint_id of string * string
 
-        | Kernels
-        | Kernels_guid of string
-        | Kernels_restart of string
-        | Kernels_interrupt of string
-        | Kernels_shell of string
-        | Kernels_iopub of string
-        | Kernels_stdin of string
+        | `Kernels
+        | `Kernels_guid of string
+        | `Kernels_restart of string
+        | `Kernels_interrupt of string
         
-        | Error_not_found
+        | `Error_not_found ]
+
+    type ws_message = 
+        [ `Ws_shell of string
+        | `Ws_iopub of string
+        | `Ws_stdin of string
+        | `Error_not_found ]
 
     let rec execl s = function
-        | [] -> Error_not_found
-        | (re, fn) :: tl ->
-            try 
-                fn (get_all (exec re s))
-            with _ -> 
-                execl s tl
+        | [] -> return `Error_not_found
+        | (re,fn) :: tl ->
+            return (try Some(fn (get_all (exec re s))) with _ -> None)
+            >>= function
+                | Some(x) -> return x
+                | None -> execl s tl
+
 
     let compile_decode p (re,fn) = compile (seq (p::re)), fn
 
     let decode_notebooks = 
+        let cp, guid = str "checkpoints", group guid in
         let re = [
-            [eos], 
-                (fun _ -> Notebooks);
-            [s; group guid; eos],
-                (fun r -> Notebooks_guid(r.(1)));
-            [s; group guid; s; str "checkpoints"; eos],
-                (fun r -> Notebooks_checkpoint(r.(1)));
-            [s; group guid; s; str "checkpoints"; s; group guid; eos],
-                (fun r -> Notebooks_checkpoint_id(r.(1), r.(2)));
+            [eos], (fun _ -> `Notebooks);
+            [s; guid; eos], (fun r -> `Notebooks_guid(r.(1)));
+            [s; guid; s; cp; eos], (fun r -> `Notebooks_checkpoint(r.(1)));
+            [s; guid; s; cp; s; guid; eos], (fun r -> `Notebooks_checkpoint_id(r.(1), r.(2)));
         ] in
         let re = List.map (compile_decode notebooks) re in
         fun path -> execl path re
 
     let decode_kernels = 
+        let guid = group guid in
         let re = [
-            [eos],
-                (fun _ -> Kernels);
-            [s; group guid; eos],
-                (fun r -> Kernels_guid(r.(1)));
-            [s; group guid; s; str "restart"; eos],
-                (fun r -> Kernels_restart(r.(1)));
-            [s; group guid; s; str "interrupt"; eos],
-                (fun r -> Kernels_interrupt(r.(1)));
-            [s; group guid; s; str "shell"; eos],
-                (fun r -> Kernels_shell(r.(1)));
-            [s; group guid; s; str "iopub"; eos],
-                (fun r -> Kernels_iopub(r.(1)));
-            [s; group guid; s; str "stdin"; eos],
-                (fun r -> Kernels_stdin(r.(1)));
+            [eos], (fun _ -> `Kernels);
+            [s; guid; eos], (fun r -> `Kernels_guid(r.(1)));
+            [s; guid; s; str "restart"; eos], (fun r -> `Kernels_restart(r.(1)));
+            [s; guid; s; str "interrupt"; eos], (fun r -> `Kernels_interrupt(r.(1)));
+        ] in
+        let re = List.map (compile_decode kernels) re in
+        fun path -> execl path re
+
+    let decode_ws = 
+        let guid = group guid in
+        let re = [
+            [s; guid; s; str "shell"; eos], (fun r -> `Ws_shell(r.(1)));
+            [s; guid; s; str "iopub"; eos], (fun r -> `Ws_iopub(r.(1)));
+            [s; guid; s; str "stdin"; eos], (fun r -> `Ws_stdin(r.(1)));
         ] in
         let re = List.map (compile_decode kernels) re in
         fun path -> execl path re
 
     let decode path = 
-        if path = "" || path = "/" then Root
-        else if execp re_static path then Static
-        else if execp re_notebooks path then decode_notebooks path
-        else if execp re_kernels path then decode_kernels path
-        else Error_not_found
+        let d = [
+            (fun p -> p="" || p="/"), (fun _ -> return `Root);
+            execp re_static, (fun _ -> return `Static);
+            execp re_notebooks, decode_notebooks;
+            execp re_kernels, decode_kernels;
+        ] in
+        let rec check = function
+            | [] -> return `Error_not_found
+            | (m,v)::tl ->
+                return (m path) 
+                >>= fun m -> if m then v path else check tl
+        in
+        check d
 
 end
-
-(*
-let make_server () =
-  let callback conn_id ?body req =
-    
-    let uri = Request.uri req in
-    let path = Uri.path uri in
-
-    match path with
-    | "" | "/" -> (* notebook html generation *)
-        let notebook = generate_notebook () in
-        Printf.eprintf "%s: %s -> %s\n%!" (Connection.to_string conn_id) (Uri.to_string uri) path;
-        Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
-
-    | _ when is_prefix "/static" path -> (* notebook resources *)
-        let fname = Server.resolve_file ~docroot:"ipython/html" ~uri:(Request.uri req) in
-        if Sys.file_exists fname then 
-            Server.respond_file ~headers:(header_of_extension fname) ~fname ()
-        else respond_not_found ()
-
-    | _  when is_prefix "/notebooks" path -> (* notebook json file *)
-        Printf.eprintf "%s: %s -> %s\n%!" (Connection.to_string conn_id) (Uri.to_string uri) path;
-        notebook_response path
-    
-    | _ when is_prefix "/kernels" path -> 
-        Printf.eprintf "%s: %s -> %s\n%!" (Connection.to_string conn_id) (Uri.to_string uri) path;
-        kernel_response path
-
-    | _ when is_prefix "/checkpoints" path -> 
-        Printf.eprintf "%s: %s -> %s\n%!" (Connection.to_string conn_id) (Uri.to_string uri) path;
-        Server.respond_string ~status:`OK ~body:"[]" ()
-
-    | _ -> 
-        Printf.eprintf "%s: %s -> %s\n%!" (Connection.to_string conn_id) (Uri.to_string uri) path;
-        respond_not_found ()
-
-  in
-  let conn_closed conn_id () =
-    Printf.eprintf "%s: closed\n%!" (Connection.to_string conn_id)
-  in
-  let config = { Server.callback; conn_closed } in
-  Server.create ~address:"0.0.0.0" ~port:8081 config
-*)
-
 
 let make_server () =
     let callback conn_id ?body req =
@@ -284,55 +225,90 @@ let make_server () =
             Server.respond_not_found ()
         in
 
-        let decode = decode path in
+        lwt decode = decode path in
         let ()  = 
             (* XXX log all messages that are not just serving notebook files *)
-            if decode <> Static then 
+            if decode <> `Static then 
                 Printf.eprintf "%s: %s -> %s\n%!" 
                     (Connection.to_string conn_id) (Uri.to_string uri) path;
         in
 
         match decode with
 
-        | Root ->
+        | `Root ->
             let notebook = generate_notebook () in
             Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
 
-        | Static -> 
+        | `Static -> 
             let fname = Server.resolve_file ~docroot:"ipython/html" ~uri:(Request.uri req) in
             if Sys.file_exists fname then 
                 Server.respond_file ~headers:(header_of_extension fname) ~fname ()
             else not_found ()
 
-        | Root_guid -> not_found ()
-        | Root_new -> not_found ()
-        | Root_copy -> not_found ()
-        | Root_name -> not_found ()
-        | Notebooks -> not_found ()
-        | Notebooks_guid(_) -> 
+        | `Root_guid -> not_found ()
+        | `Root_new -> not_found ()
+        | `Root_copy -> not_found ()
+        | `Root_name -> not_found ()
+        | `Notebooks -> not_found ()
+        | `Notebooks_guid(_) -> 
             Server.respond_string ~status:`OK ~body:empty_notebook ()
 
-        | Notebooks_checkpoint(_) -> 
-                Server.respond_string ~status:`OK ~body:"[]" ()
+        | `Notebooks_checkpoint(_) -> 
+            Server.respond_string ~status:`OK ~body:"[]" ()
 
-        | Notebooks_checkpoint_id(_) -> not_found ()
-        | Kernels -> 
+        | `Notebooks_checkpoint_id(_) -> not_found ()
+        | `Kernels -> 
             kernel_response path
 
-        | Kernels_guid(_) -> not_found ()
-        | Kernels_restart(_) -> not_found ()
-        | Kernels_interrupt(_) -> not_found ()
-        | Kernels_shell(_) -> not_found ()
-        | Kernels_iopub(_) -> not_found ()
-        | Kernels_stdin(_) -> not_found ()
-        | Error_not_found -> not_found ()
+        | `Kernels_guid(_) -> not_found ()
+        | `Kernels_restart(_) -> not_found ()
+        | `Kernels_interrupt(_) -> not_found ()
+        | `Error_not_found -> not_found ()
     in
     let conn_closed conn_id () =
         Printf.eprintf "%s: closed\n%!" (Connection.to_string conn_id)
     in
     let config = { Server.callback; conn_closed } in
-    Server.create ~address:"0.0.0.0" ~port:8081 config
+    Server.create ~address:"0.0.0.0" ~port:8889 config
 
-let _ = Lwt_unix.run (make_server ())
+let rec ws_shell uri (stream,push) = 
+    Lwt_stream.next stream >>= fun frame ->
+    Lwt_io.eprintf "shell: %s\n" (Websocket.Frame.content frame) >>= fun () ->
+    ws_shell uri (stream,push)
+
+let ws_stdin uri (stream,push) = 
+    Lwt_stream.next stream >>= fun frame ->
+    Lwt_io.eprintf "stdin: %s\n" (Websocket.Frame.content frame) >>= fun () ->
+    ws_shell uri (stream,push)
+
+let ws_iopub uri (stream,push) = 
+    Lwt_stream.next stream >>= fun frame ->
+    Lwt_io.eprintf "iopub: %s\n" (Websocket.Frame.content frame) >>= fun () ->
+    ws_shell uri (stream,push)
+
+let ws_init uri (stream,push) = 
+    Lwt_stream.next stream >>= fun frame ->
+        (* display bring up cookie *)
+        Lwt_io.eprintf "cookie: %s\n" (Websocket.Frame.content frame) >>= fun () ->
+        (* handle each stream *)
+        match_lwt Path_messages.decode_ws (Uri.path uri) with
+        | `Ws_shell(guid) -> ws_shell uri (stream,push)
+        | `Ws_stdin(guid) -> ws_stdin uri (stream,push)
+        | `Ws_iopub(guid) -> ws_iopub uri (stream,push)
+        | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
+
+let run_server () = 
+    let http_server = make_server () in
+    let ws_server = 
+        return 
+            (Websocket.establish_server 
+                (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string "127.0.0.1", 8890))
+                ws_init)
+    in
+    let rec wait_forever () = Lwt_unix.sleep 1000.0 >>= wait_forever in
+    let ws_server = ws_server >>= fun _ -> wait_forever () in
+    Lwt.join [ http_server; ws_server ]
+
+let _ = Lwt_unix.run (run_server ())
 
 
