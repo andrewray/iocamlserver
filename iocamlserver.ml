@@ -1,13 +1,57 @@
 (* A http server for iocaml.  
-   This will be merged into iocaml proper if it starts to work *)
+   This will be merged into iocaml proper if it starts to work 
+
+kernel messages
+---------------
+
+ ipython/html/services/kernels/handlers.py
+ ipython/html/static/notebook/js/notebook.js 
+
+ /kernels?notebook=<guid> - send kernel id + ws_url, start kernel
+ /kernels/<guid> - delete, stop kernel, status 204
+ /kernels/<guid>/restart|interrupt - restart/interrupt kernel
+ /kernels/<guid>/shell|iopub|stdin - websocket
+
+notebook messages
+-----------------
+
+ ipython/html/services/notebooks/handlers.py
+
+ /notebooks
+ /notebooks/<guid>
+ /notebooks/<guid>/checkpoints
+ /notebooks/<guid>/checkpoints/<id>
+
+
+root messages 
+-------------
+
+ ipython/html/notebook/handlers.py
+
+ /<guid>
+ /new - new notebook
+ /<guid>/copy - copy and redirect
+ /<name> - redirect to guid
+
+*)
 
 open Printf
 open Lwt
 open Cohttp
 open Cohttp_lwt_unix
 
+(* port configuration *)
+let http_addr = "0.0.0.0"
+let http_port = 8889
+let ws_addr = "127.0.0.1"
+let ws_port = 8890
+let zmq_shell_port = 8891
+let zmq_iopub_port = 8892
+let zmq_control_port = 8893
+let zmq_heartbeat_port = 8894
+let zmq_stdin_port = 8895
+
 (* some stuff we will need to set up dynamically (and figure out what they are!) *)
-let kernel_id = "d827cffb-c1aa-4752-8a53-5b88aad189bd" (* guid for the kernel *)
 let title = "Untitled0" (* notebook title *)
 let data_project = "/home/andyman/dev/github/iocamlserver" (* not sure...notebook directory? *)
 let data_notebook_id = "d8f01c67-33f6-48a8-8d4d-61a9d952e2bb" (* guid for the notebook instance *)
@@ -34,76 +78,108 @@ let generate_notebook () =
     "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
 
 (* the json that's served for an empty notebook *)
-let empty_notebook = "
-{
-    \"metadata\": { \"language\": \"ocaml\", \"name\": \"Untitled0\" },
-    \"nbformat\": 3, \"nbformat_minor\": 0,
-    \"worksheets\": [ { \"cells\": [], \"metadata\": {} } ]
-}"
+let empty_notebook title = 
+    let open Yojson.Basic in
+    to_string 
+        (`Assoc [
+            "metadata", `Assoc [
+                "language", `String "ocaml";
+                "name", `String title;
+            ];
+            "nbformat", `Int 3;
+            "nbformat_minor", `Int 0;
+            "worksheets", `List [
+                `Assoc [
+                    "cells", `List [];
+                    "metadata", `Assoc [];
+                ];
+            ];
+        ])
 
-let kernel_id_message = "
-{
-    \"kernel_id\":\"" ^ kernel_id ^ "\",
-    \"ws_url\":\"ws://127.0.0.1:8890\"
-}
-"
+let kernel_id_message kernel_guid ws_addr ws_port = 
+    let open Yojson.Basic in
+    to_string 
+        (`Assoc [
+            "kernel_id", `String kernel_guid;
+            "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
+        ])
 
-let header typ = 
-    let h = Header.init () in
-    let h = Header.add h "Content-Type" typ in
-    let h = Header.add h "Server" "iocaml" in
-    h
+let connection_file  
+    ip_addr
+    zmq_shell_port zmq_iopub_port zmq_control_port
+    zmq_heartbeat_port zmq_stdin_port
+    = 
+    let open Yojson.Basic in
+    to_string 
+        (`Assoc [
+          "stdin_port", `Int zmq_stdin_port; 
+          "ip", `String ip_addr; 
+          "control_port", `Int zmq_control_port; 
+          "hb_port", `Int zmq_heartbeat_port; 
+          "signature_scheme", `String "hmac-sha256"; 
+          "key", `String ""; 
+          "shell_port", `Int zmq_shell_port; 
+          "transport", `String "tcp"; 
+          "iopub_port", `Int zmq_iopub_port
+        ])
 
-(* XXX caching headers *)
-let header_none = Header.init ()
-let header_html = header "text/html; charset=UTF-8"
-let header_css = header "text/css"
-let header_javascript = header "application/javascript"
-let header_json = header "application/json"
-let header_font = header "application/x-font-woff"
+type kernel = 
+    {
+        process : Lwt_process.process_none;
+        guid : string;
+    }
 
-let header_of_extension filename = 
-    if Filename.check_suffix filename ".js" then header_javascript
-    else if Filename.check_suffix filename ".css" then header_css
-    else if Filename.check_suffix filename ".ipynb" then header_json
-    else if Filename.check_suffix filename ".woff" then header_font
-    else header_none
+module Kernel_map = Map.Make(String)
 
-(* kernel messages
+let g_kernels : kernel Kernel_map.t ref = ref Kernel_map.empty
+let g_notebooks : string Kernel_map.t ref = ref Kernel_map.empty
 
- ipython/html/services/kernels/handlers.py
- ipython/html/static/notebook/js/notebook.js 
+let kernel_of_notebooks notebook_guid = Kernel_map.find notebook_guid !g_notebooks
+let kernel_data kernel_guid = Kernel_map.find kernel_guid !g_kernels
 
- /kernels?notebook=<guid> - send kernel id + ws_url, start kernel
- /kernels/<guid> - delete, stop kernel, status 204
- /kernels/<guid>/restart|interrupt - restart/interrupt kernel
- /kernels/<guid>/shell|iopub|stdin - websocket
-*)
+let write_connection_file 
+    kernel_guid ip_addr
+    zmq_shell_port zmq_iopub_port zmq_control_port
+    zmq_heartbeat_port zmq_stdin_port =
 
-let kernel_response path =
-    Server.respond_string ~status:`OK (*~headers:header_html*) ~body:kernel_id_message ()
+    let cwd = Unix.getcwd () in
+    let fname = Filename.concat cwd (kernel_guid ^ ".json") in
+    let f = open_out fname in
+    output_string f 
+        (connection_file ip_addr zmq_shell_port zmq_iopub_port
+            zmq_control_port zmq_heartbeat_port zmq_stdin_port);
+    close_out f;
+    fname
 
-(* notebook messages
- 
- ipython/html/services/notebooks/handlers.py
-
- /notebooks
- /notebooks/<guid>
- /notebooks/<guid>/checkpoints
- /notebooks/<guid>/checkpoints/<id>
-
-*)
-
-(* root messages 
-
- ipython/html/notebook/handlers.py
-
- /<guid>
- /new - new notebook
- /<guid>/copy - copy and redirect
- /<name> - redirect to guid
-
-*)
+let kernel_response req =
+    (* I think at this point we create the kernel and add a mapping *)
+    let kernel_guid = Uuidm.(to_string (create `V4)) in
+    let conn_file_name = write_connection_file
+        kernel_guid ws_addr
+        zmq_shell_port zmq_iopub_port zmq_control_port
+        zmq_heartbeat_port zmq_stdin_port 
+    in
+    let command = ("", [| "iocaml.top"; "-connection-file"; conn_file_name |]) in
+    lwt notebook_guid =  
+        let uri = Request.uri req in
+        match Uri.get_query_param uri "notebook" with
+        | None -> Lwt.fail (Failure "/kernels expecting notebook id")
+        | Some(x) -> return x
+    in
+    lwt () = Lwt_io.eprintf "kernel_guid: %s\n" kernel_guid in
+    lwt () = Lwt_io.eprintf "notebook_guid: %s\n" notebook_guid in
+    let k = 
+        {
+            process = Lwt_process.open_process_none command;
+            guid = kernel_guid;
+        }
+    in
+    let () = 
+        g_notebooks := Kernel_map.add notebook_guid k.guid !g_notebooks;
+        g_kernels := Kernel_map.add kernel_guid k !g_kernels
+    in
+    Server.respond_string ~status:`OK 
+        ~body:(kernel_id_message kernel_guid ws_addr ws_port) ()
 
 (* messages sent by paths in the url *)
 module Path_messages = struct
@@ -121,14 +197,18 @@ module Path_messages = struct
     let notebooks = str "/notebooks"
     let kernels = str "/kernels"
     let static = str "/static"
+    let status = str "/status"
 
     let re_notebooks = compile notebooks
     let re_kernels = compile kernels
     let re_static = compile static
+    let re_status = compile status
 
     type message =
         [ `Static
  
+        | `Status
+
         | `Root
         | `Root_guid
         | `Root_new
@@ -202,6 +282,7 @@ module Path_messages = struct
             execp re_static, (fun _ -> return `Static);
             execp re_notebooks, decode_notebooks;
             execp re_kernels, decode_kernels;
+            execp re_status, (fun _ -> return `Status);
         ] in
         let rec check = function
             | [] -> return `Error_not_found
@@ -213,10 +294,31 @@ module Path_messages = struct
 
 end
 
-let make_server () =
+let header typ = 
+    let h = Header.init () in
+    let h = Header.add h "Content-Type" typ in
+    let h = Header.add h "Server" "iocaml" in
+    h
+
+let header_none = Header.init ()
+let header_html = header "text/html; charset=UTF-8"
+let header_css = header "text/css"
+let header_javascript = header "application/javascript"
+let header_json = header "application/json"
+let header_font = header "application/x-font-woff"
+
+let header_of_extension filename = 
+    if Filename.check_suffix filename ".js" then header_javascript
+    else if Filename.check_suffix filename ".css" then header_css
+    else if Filename.check_suffix filename ".ipynb" then header_json
+    else if Filename.check_suffix filename ".woff" then header_font
+    else header_none
+
+let make_server address port =
     let callback conn_id ?body req =
         let open Path_messages in
         let uri = Request.uri req in
+        let meth = Request.meth req in
         let path = Uri.path uri in
         
         let not_found () = 
@@ -244,32 +346,45 @@ let make_server () =
             if Sys.file_exists fname then 
                 Server.respond_file ~headers:(header_of_extension fname) ~fname ()
             else not_found ()
+    
+        | `Status ->
+            let static_url x = "/static/" ^ x in
+            let guids = List.map fst (Kernel_map.bindings !g_kernels) in
+            Server.respond_string ~status:`OK ~headers:header_html 
+                ~body:(Cow.Html.to_string 
+                    (Pages.(page "status" "" static_url "" "" "" "" "no_class" 
+                          empty empty (status_site guids) empty))) ()
 
         | `Root_guid -> not_found ()
         | `Root_new -> not_found ()
         | `Root_copy -> not_found ()
         | `Root_name -> not_found ()
         | `Notebooks -> not_found ()
-        | `Notebooks_guid(_) -> 
-            Server.respond_string ~status:`OK ~body:empty_notebook ()
+        | `Notebooks_guid(_) when meth = `GET -> 
+            Server.respond_string ~status:`OK ~body:(empty_notebook "Untitled0") ()
+
+        | `Notebooks_guid(_) when meth = `PUT -> 
+            (* save notebook *)
+            not_found ()
 
         | `Notebooks_checkpoint(_) -> 
             Server.respond_string ~status:`OK ~body:"[]" ()
 
         | `Notebooks_checkpoint_id(_) -> not_found ()
         | `Kernels -> 
-            kernel_response path
+            kernel_response req
 
         | `Kernels_guid(_) -> not_found ()
         | `Kernels_restart(_) -> not_found ()
         | `Kernels_interrupt(_) -> not_found ()
-        | `Error_not_found -> not_found ()
+
+        | `Error_not_found | _ -> not_found ()
     in
     let conn_closed conn_id () =
         Printf.eprintf "%s: closed\n%!" (Connection.to_string conn_id)
     in
     let config = { Server.callback; conn_closed } in
-    Server.create ~address:"0.0.0.0" ~port:8889 config
+    Server.create ~address ~port config
 
 let rec ws_shell uri (stream,push) = 
     Lwt_stream.next stream >>= fun frame ->
@@ -298,17 +413,28 @@ let ws_init uri (stream,push) =
         | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
 
 let run_server () = 
-    let http_server = make_server () in
+    let http_server = make_server http_addr http_port in
     let ws_server = 
         return 
             (Websocket.establish_server 
-                (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string "127.0.0.1", 8890))
+                (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string ws_addr, ws_port))
                 ws_init)
     in
     let rec wait_forever () = Lwt_unix.sleep 1000.0 >>= wait_forever in
     let ws_server = ws_server >>= fun _ -> wait_forever () in
     Lwt.join [ http_server; ws_server ]
 
-let _ = Lwt_unix.run (run_server ())
+let close_kernels () = 
+    Kernel_map.iter 
+        (fun _ v -> 
+            eprintf "killing kernel: %s\n" v.guid;
+            v.process#terminate) !g_kernels
 
+let _ = 
+    Sys.catch_break true;
+    try 
+        (*at_exit close_kernels;*)
+        Lwt_unix.run (run_server ())
+    with
+    | Sys.Break -> close_kernels ()
 

@@ -173,11 +173,11 @@ let notebook_site =
                 <li class="divider"> </li>
                 <li id="restore_checkpoint" class="dropdown-submenu"><a href="#">Revert to Checkpoint</a>
                   <ul class="dropdown-menu">
-                    <li><a href="#"></a></li>
-                    <li><a href="#"></a></li>
-                    <li><a href="#"></a></li>
-                    <li><a href="#"></a></li>
-                    <li><a href="#"></a></li>
+                    <li><a href="#"> </a></li>
+                    <li><a href="#"> </a></li>
+                    <li><a href="#"> </a></li>
+                    <li><a href="#"> </a></li>
+                    <li><a href="#"> </a></li>
                   </ul>
                 </li>
                 <li class="divider"> </li>
@@ -362,4 +362,16 @@ let notebook_scripts static_url =
 <script src=$str:static_url "notebook/js/celltoolbarpresets/default.js"$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/celltoolbarpresets/slideshow.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
+
+let status_site guids =
+    let guids = List.map (fun s -> <:html< <li>$str:s$</li> >> ) guids in 
+<:html<
+  <div>
+    <ul>
+      $list:guids$
+    </ul>
+  </div>
+>>
+
+let empty = <:html< >>
 
