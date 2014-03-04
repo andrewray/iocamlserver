@@ -41,7 +41,7 @@ open Cohttp
 open Cohttp_lwt_unix
 
 (* port configuration *)
-let http_addr = "0.0.0.0"
+let http_addr = "127.0.0.1"
 let http_port = 8889
 let ws_addr = "127.0.0.1"
 let ws_port = 8890
@@ -50,6 +50,9 @@ let zmq_iopub_port = 8892
 let zmq_control_port = 8893
 let zmq_heartbeat_port = 8894
 let zmq_stdin_port = 8895
+
+(* zmq initialization *)
+let zmq = ZMQ.init ()
 
 (* some stuff we will need to set up dynamically (and figure out what they are!) *)
 let title = "Untitled0" (* notebook title *)
@@ -123,10 +126,16 @@ let connection_file
           "iopub_port", `Int zmq_iopub_port
         ])
 
-type kernel = 
+type kernel =
     {
         process : Lwt_process.process_none;
         guid : string;
+        (* zmq sockets *)
+        stdin : [`Dealer] Lwt_zmq.Socket.t;
+        control : [`Dealer] Lwt_zmq.Socket.t;
+        shell : [`Dealer] Lwt_zmq.Socket.t;
+        iopub : [`Sub] Lwt_zmq.Socket.t;
+        heartbeat : [`Req] Lwt_zmq.Socket.t;
     }
 
 module Kernel_map = Map.Make(String)
@@ -138,9 +147,9 @@ let kernel_of_notebooks notebook_guid = Kernel_map.find notebook_guid !g_noteboo
 let kernel_data kernel_guid = Kernel_map.find kernel_guid !g_kernels
 
 let write_connection_file 
-    kernel_guid ip_addr
-    zmq_shell_port zmq_iopub_port zmq_control_port
-    zmq_heartbeat_port zmq_stdin_port =
+    ~kernel_guid ~ip_addr
+    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+    ~zmq_heartbeat_port ~zmq_stdin_port =
 
     let cwd = Unix.getcwd () in
     let fname = Filename.concat cwd (kernel_guid ^ ".json") in
@@ -155,11 +164,15 @@ let kernel_response req =
     (* I think at this point we create the kernel and add a mapping *)
     let kernel_guid = Uuidm.(to_string (create `V4)) in
     let conn_file_name = write_connection_file
-        kernel_guid ws_addr
-        zmq_shell_port zmq_iopub_port zmq_control_port
-        zmq_heartbeat_port zmq_stdin_port 
+        ~kernel_guid ~ip_addr:ws_addr
+        ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+        ~zmq_heartbeat_port ~zmq_stdin_port 
     in
-    let command = ("", [| "iocaml.top"; "-connection-file"; conn_file_name |]) in
+    let command = ("", [| "iocaml.top"; 
+                            "-connection-file"; conn_file_name;
+                            "-log"; "iocaml.log";
+                      |]) 
+    in
     lwt notebook_guid =  
         let uri = Request.uri req in
         match Uri.get_query_param uri "notebook" with
@@ -168,10 +181,20 @@ let kernel_response req =
     in
     lwt () = Lwt_io.eprintf "kernel_guid: %s\n" kernel_guid in
     lwt () = Lwt_io.eprintf "notebook_guid: %s\n" notebook_guid in
+    let make_socket typ addr port = 
+        let socket = ZMQ.Socket.(create zmq typ) in
+        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
+        Lwt_zmq.Socket.of_socket socket
+    in
     let k = 
         {
             process = Lwt_process.open_process_none command;
             guid = kernel_guid;
+            stdin = make_socket ZMQ.Socket.dealer ws_addr zmq_stdin_port;
+            control = make_socket ZMQ.Socket.dealer ws_addr zmq_control_port;
+            shell = make_socket ZMQ.Socket.dealer ws_addr zmq_shell_port;
+            iopub = make_socket ZMQ.Socket.sub ws_addr zmq_iopub_port;
+            heartbeat = make_socket ZMQ.Socket.req ws_addr zmq_heartbeat_port;
         }
     in
     let () = 
@@ -386,30 +409,31 @@ let make_server address port =
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
-let rec ws_shell uri (stream,push) = 
-    Lwt_stream.next stream >>= fun frame ->
-    Lwt_io.eprintf "shell: %s\n" (Websocket.Frame.content frame) >>= fun () ->
-    ws_shell uri (stream,push)
+let ws_to_zmq name stream socket = 
+    lwt frame = Lwt_stream.next stream in
+    let data = Websocket.Frame.content frame in
+    lwt () = Lwt_io.eprintf "%s: %s\n" name data in
+    Lwt_zmq.Socket.send_all socket [data]
 
-let ws_stdin uri (stream,push) = 
-    Lwt_stream.next stream >>= fun frame ->
-    Lwt_io.eprintf "stdin: %s\n" (Websocket.Frame.content frame) >>= fun () ->
-    ws_shell uri (stream,push)
+let zmq_to_ws name socket push = 
+    lwt frame = Lwt_zmq.Socket.recv socket in
+    lwt () = Lwt_io.eprintf "%s: %s\n" name frame in
+    Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string frame))) 
 
-let ws_iopub uri (stream,push) = 
-    Lwt_stream.next stream >>= fun frame ->
-    Lwt_io.eprintf "iopub: %s\n" (Websocket.Frame.content frame) >>= fun () ->
-    ws_shell uri (stream,push)
+let rec ws_zmq_comms name socket uri (stream,push) = 
+    lwt () = Lwt_io.eprintf "ws_zmq_comms: %s\n" name in
+    lwt _ = zmq_to_ws name socket push <?> ws_to_zmq name stream socket in
+    ws_zmq_comms name socket uri (stream,push)
 
 let ws_init uri (stream,push) = 
     Lwt_stream.next stream >>= fun frame ->
-        (* display bring up cookie *)
-        Lwt_io.eprintf "cookie: %s\n" (Websocket.Frame.content frame) >>= fun () ->
-        (* handle each stream *)
+        (* we get one special message per channel, after which it's comms time *)
+        lwt () = Lwt_io.eprintf "cookie: %s\n" (Websocket.Frame.content frame) in
+        let find guid = Kernel_map.find guid !g_kernels in
         match_lwt Path_messages.decode_ws (Uri.path uri) with
-        | `Ws_shell(guid) -> ws_shell uri (stream,push)
-        | `Ws_stdin(guid) -> ws_stdin uri (stream,push)
-        | `Ws_iopub(guid) -> ws_iopub uri (stream,push)
+        | `Ws_shell(guid) -> ws_zmq_comms "shell" (find guid).shell uri (stream,push)
+        | `Ws_stdin(guid) -> ws_zmq_comms "stdin" (find guid).stdin uri (stream,push)
+        | `Ws_iopub(guid) -> ws_zmq_comms "iopub" (find guid).iopub uri (stream,push)
         | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
 
 let run_server () = 
@@ -436,5 +460,9 @@ let _ =
         (*at_exit close_kernels;*)
         Lwt_unix.run (run_server ())
     with
-    | Sys.Break -> close_kernels ()
+    | Sys.Break -> begin
+        close_kernels ();
+        (*ZMQ.term zmq*)
+    end
+
 
