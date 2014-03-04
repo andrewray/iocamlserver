@@ -108,9 +108,9 @@ let kernel_id_message kernel_guid ws_addr ws_port =
         ])
 
 let connection_file  
-    ip_addr
-    zmq_shell_port zmq_iopub_port zmq_control_port
-    zmq_heartbeat_port zmq_stdin_port
+    ~ip_addr
+    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+    ~zmq_heartbeat_port ~zmq_stdin_port
     = 
     let open Yojson.Basic in
     to_string 
@@ -155,8 +155,8 @@ let write_connection_file
     let fname = Filename.concat cwd (kernel_guid ^ ".json") in
     let f = open_out fname in
     output_string f 
-        (connection_file ip_addr zmq_shell_port zmq_iopub_port
-            zmq_control_port zmq_heartbeat_port zmq_stdin_port);
+        (connection_file ~ip_addr ~zmq_shell_port ~zmq_iopub_port
+            ~zmq_control_port ~zmq_heartbeat_port ~zmq_stdin_port);
     close_out f;
     fname
 
@@ -186,15 +186,35 @@ let kernel_response req =
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
         Lwt_zmq.Socket.of_socket socket
     in
+    (* see kernel/channels.py *)
+    let shell_socket addr port = 
+        let socket = ZMQ.Socket.(create zmq dealer) in
+        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
+        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
+        Lwt_zmq.Socket.of_socket socket
+    in
+    let iopub_socket addr port = 
+        let socket = ZMQ.Socket.(create zmq sub) in
+        let () = ZMQ.Socket.subscribe socket "" in
+        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
+        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
+        Lwt_zmq.Socket.of_socket socket
+    in
+    let heartbeat_socket addr port = 
+        let socket = ZMQ.Socket.(create zmq req) in
+        let () = ZMQ.Socket.set_linger_period socket 0 in
+        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
+        Lwt_zmq.Socket.of_socket socket
+    in
     let k = 
         {
             process = Lwt_process.open_process_none command;
             guid = kernel_guid;
             stdin = make_socket ZMQ.Socket.dealer ws_addr zmq_stdin_port;
             control = make_socket ZMQ.Socket.dealer ws_addr zmq_control_port;
-            shell = make_socket ZMQ.Socket.dealer ws_addr zmq_shell_port;
-            iopub = make_socket ZMQ.Socket.sub ws_addr zmq_iopub_port;
-            heartbeat = make_socket ZMQ.Socket.req ws_addr zmq_heartbeat_port;
+            shell = shell_socket ws_addr zmq_shell_port;
+            iopub = iopub_socket ws_addr zmq_iopub_port;
+            heartbeat = heartbeat_socket ws_addr zmq_heartbeat_port;
         }
     in
     let () = 
@@ -409,15 +429,101 @@ let make_server address port =
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
+(*
+{
+    "header":
+        {
+            "msg_id":"1EF4E8EB10A04B3580C794F453AE74C3",
+            "username":"username",
+            "session":"D154E0C448ED4BD0870FF06B6D82AB22",
+            "msg_type":"execute_request"
+        },
+    "metadata":{},
+    "content":
+        {
+            "code":"let a = 1",
+            "silent":false,
+            "store_history":true,
+            "user_variables":[],
+            "user_expressions":{},
+            "allow_stdin":true
+        },
+    "parent_header":{}
+}
+*)
+
+let zmq_of_ws_message data = 
+    let open Yojson.Basic in
+    let data = from_string data in
+    match data with
+    | `Assoc l ->
+        [   
+            "<IDS|MSG>";
+            "";
+            to_string (List.assoc "header" l);
+            to_string (List.assoc "parent_header" l);
+            to_string (List.assoc "metadata" l);
+            to_string (List.assoc "content" l);
+        ]
+    | _ -> raise (Failure "deserialize_ws")
+
+(*
+{
+    "parent_header":
+        {
+            "username":"username",
+            "session":"E61C23EFDFAA4D3E8376E2EBB92898BC",
+            "msg_id":"EBDF3748CE8F4A84891C19C11BAA99A4",
+            "msg_type":"execute_request"
+        },
+    "msg_type":"status",
+    "msg_id":"506786e3-3bb8-4d75-aa43-956180b2867b",
+    "content":{"execution_state":"idle"},
+    "header":
+        {
+            "username":"username",
+            "session":"E61C23EFDFAA4D3E8376E2EBB92898BC",
+            "msg_id":"506786e3-3bb8-4d75-aa43-956180b2867b",
+            "msg_type":"status"
+        },
+    "metadata":{}
+}
+*)
+
+let ws_of_zmq_message data = 
+    let open Yojson.Basic in
+    let rec find = function
+        | [] -> raise (Failure "bad zmq message")
+        | "<IDS|MSG>"::_::h::p::m::c::_ -> from_string h, from_string p,
+                                           from_string m, from_string c
+        | h::t -> find t
+    in
+    let header,parent,meta,content = find data in
+    let extract data = 
+        match header with `Assoc l -> (List.assoc data l) | _ -> `String "error"
+    in
+    to_string
+        (`Assoc [
+            "parent_header", parent;
+            "msg_type", extract "msg_type";
+            "msg_id", extract "msg_id";
+            "content", content;
+            "header", header;
+            "metadata", meta;
+        ])
+
 let ws_to_zmq name stream socket = 
     lwt frame = Lwt_stream.next stream in
     let data = Websocket.Frame.content frame in
     lwt () = Lwt_io.eprintf "%s: %s\n" name data in
-    Lwt_zmq.Socket.send_all socket [data]
+    Lwt_zmq.Socket.send_all socket (zmq_of_ws_message data)
 
 let zmq_to_ws name socket push = 
-    lwt frame = Lwt_zmq.Socket.recv socket in
-    lwt () = Lwt_io.eprintf "%s: %s\n" name frame in
+    lwt frames = Lwt_zmq.Socket.recv_all socket in
+    lwt () = 
+        Lwt_list.iter_s (Lwt_io.eprintf "%s: %s\n" name) frames 
+    in
+    let frame = ws_of_zmq_message frames in
     Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string frame))) 
 
 let rec ws_zmq_comms name socket uri (stream,push) = 
