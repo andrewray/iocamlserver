@@ -1,23 +1,16 @@
-all: iocaml
+all: iocamlserver.byte 
+native: iocamlserver.native
 
 PKGS=-package cow,cohttp.lwt,websocket,lwt-zmq,uuidm,yojson
 
-pages.cmo: pages.ml
-	ocamlfind c -c -syntax camlp4o \
-		-package cow,cow.syntax \
-		pages.ml
+iocamlserver.byte:
+	ocamlbuild -use-ocamlfind iocamlserver.byte
 
-iocamlserver.cmo: iocamlserver.ml pages.cmo 
-	ocamlfind c -c -thread -syntax camlp4o \
-		$(PKGS) -package lwt.syntax \
-		iocamlserver.ml
-
-iocaml: iocamlserver.cmo pages.cmo
-	ocamlfind c -thread -o iocaml -linkpkg \
-		$(PKGS) \
-		pages.cmo iocamlserver.cmo
+iocamlserver.native:
+	ocamlbuild -use-ocamlfind iocamlserver.native
 
 clean:
+	ocamlbuild -clean
 	- rm -f *.cm[io]
 	- rm -f iocaml
 	- rm *~

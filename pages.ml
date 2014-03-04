@@ -1,4 +1,12 @@
-(* Notebook template. *)
+(* 
+ * iocamlserver - IOCaml notebook server
+ *
+ *   (c) 2014 MicroJamJar Ltd
+ *
+ * Author(s): andy.ray@ujamjar.com
+ * Description: HTML page templates
+ *
+ *)
 
 (* see ipython/html/templates/page.html etc *)
 
@@ -30,17 +38,23 @@
     could find.
          script, div and li
 
-    A not unreasonable approach might be to rewrite this is XHTML at 
+    A not unreasonable approach might be to rewrite this in XHTML at 
     some point.
     
 *)
 
 open Cow
 
+let empty = <:html< >>
+
 let page 
     title 
     base_project_url static_url 
-    data_project data_base_project_url data_base_kernel_url data_notebook_id body_class
+    data_project 
+    data_base_project_url 
+    data_base_kernel_url 
+    data_notebook_id 
+    body_class
     stylesheet header site script = 
 
 <:html<
@@ -363,15 +377,61 @@ let notebook_scripts static_url =
 <script src=$str:static_url "notebook/js/celltoolbarpresets/slideshow.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
 
-let status_site guids =
-    let guids = List.map (fun s -> <:html< <li>$str:s$</li> >> ) guids in 
+let dashboard_site = 
 <:html<
-  <div>
-    <ul>
-      $list:guids$
+
+<div id="ipython-main-app" class="container">
+  <div id="tabs" class="tabbable">
+    <ul class="nav nav-tabs" id="tabs">
+      <li class="active"><a href="#notebooks" data-toggle="tab">Notebooks</a></li>
+      <!-- <li><a href="#clusters" data-toggle="tab">Clusters</a></li> -->
     </ul>
+
+    <div class="tab-content">
+      <div id="notebooks" class="tab-pane active">
+        
+        <div id="notebook_toolbar">
+          <form id='alternate_upload'  class='alternate_upload' >
+            <span id="drag_info" style="position:absolute" >
+              To import a notebook, drag the file onto the listing below or <strong>click here</strong>.
+            </span>
+            <input type="file" name="datafile" class="fileinput" multiple='multiple' />
+          </form>
+          <span id="notebook_buttons">
+            <button id="refresh_notebook_list" title="Refresh notebook list" class="btn btn-small">Refresh</button>
+             <button id="new_notebook" title="Create new notebook" class="btn btn-small">New Notebook</button>
+          </span>
+        </div>
+
+        <div id="notebook_list">
+          <div id="notebook_list_header" class="row-fluid list_header">
+            <div id="project_name">
+              <ul class="breadcrumb">
+                    <!-- COMPONENTS  -->
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
+</div>
+
 >>
 
-let empty = <:html< >>
+let dashboard_stylesheet static_url = 
+<:html<
+<link rel="stylesheet" href=$str:static_url "style/style.min.css"$ type="text/css"/>
+<link rel="stylesheet" href=$str:static_url "tree/css/override.css"$ type="text/css" />
+>>
+
+let dashboard_scripts static_url = 
+<:html<
+    <script src=$str:static_url "base/js/dialog.js"$ type="text/javascript" charset="utf-8"> </script>
+    <script src=$str:static_url "tree/js/notebooklist.js"$ type="text/javascript" charset="utf-8"> </script>
+    <script src=$str:static_url "tree/js/clusterlist.js"$ type="text/javascript" charset="utf-8"> </script>
+    <script src=$str:static_url "tree/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
+>>
 

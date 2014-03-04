@@ -8,3 +8,8 @@
 *.cmxs
 *.cmxa
 *~
+ipython
+ocaml-cohttp/
+ocaml-websocket/
+ocaml-zmq/
+lwt-zmq/
