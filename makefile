@@ -1,3 +1,5 @@
+.PHONY: iocamlserver.byte iocamlserver.native
+
 all: iocamlserver.byte 
 native: iocamlserver.native
 
@@ -11,8 +13,6 @@ iocamlserver.native:
 
 clean:
 	ocamlbuild -clean
-	- rm -f *.cm[io]
-	- rm -f iocaml
 	- rm *~
 	- rm *.json
 

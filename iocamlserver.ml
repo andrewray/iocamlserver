@@ -65,72 +65,21 @@ let notebook_path = Unix.getcwd ()
 (* zmq initialization *)
 let zmq = ZMQ.init ()
 
-(* some stuff we will need to set up dynamically (and figure out what they are!) *)
-let title = "Untitled0" (* notebook title *)
-let data_project = "/home/andyman/dev/github/iocamlserver" (* not sure...notebook directory? *)
-let data_notebook_id = "d8f01c67-33f6-48a8-8d4d-61a9d952e2bb" (* guid for the notebook instance *)
-
-let generate_notebook_html () = 
-    
-    let static_url x = "/static/" ^ x in
-    let mathjax_url = "http://cdn.mathjax.org/mathjax/latest/MathJax.js" in
-    let base_project_url = "/" in
-    let data_base_project_url = "/" in
-    let data_base_kernel_url = "/" in
-    let body_class = "" in
-
-    let style = Pages.notebook_stylesheet mathjax_url static_url in
-    let header = Pages.notebook_header in
-    let site = Pages.notebook_site in
-    let script = Pages.notebook_scripts static_url in
-    let page = Pages.page 
-        title base_project_url static_url
-        data_project data_base_project_url data_base_kernel_url
-        data_notebook_id body_class
-        style header site script
-    in
-    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
-
-let generate_dashboard_html () = 
-    let static_url x = "/static/" ^ x in
-    let base_project_url = "/" in
-    let data_base_project_url = "/" in
-    let data_base_kernel_url = "/" in
-    let body_class = "notebook_app" in
-
-    let style = Pages.dashboard_stylesheet static_url in
-    let header = Pages.empty in
-    let site = Pages.dashboard_site in
-    let script = Pages.dashboard_scripts static_url in
-
-    let page = Pages.page 
-        title base_project_url static_url
-        data_project data_base_project_url data_base_kernel_url
-        data_notebook_id body_class
-        style header site script
-    in
-    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
-
 (* the json that's served for an empty notebook *)
 let empty_notebook title = 
     let open Yojson.Basic in
     to_string 
         (`Assoc [
-            "metadata", `Assoc [
-                "language", `String "ocaml";
-                "name", `String title;
-            ];
-            "nbformat", `Int 3;
-            "nbformat_minor", `Int 0;
-            "worksheets", `List [
-                `Assoc [
-                    "cells", `List [];
-                    "metadata", `Assoc [];
-                ];
-            ];
+            "metadata", `Assoc [ "language", `String "ocaml"; "name", `String title; ];
+            "nbformat", `Int 3; "nbformat_minor", `Int 0;
+            "worksheets", `List [ `Assoc [ "cells", `List []; "metadata", `Assoc []; ]; ];
         ])
 
-let kernel_id_message kernel_guid ws_addr ws_port = 
+let write_empty_notebook title = 
+    Lwt_io.(with_file ~mode:output (title ^ ".ipynb") 
+                (fun f -> write f (empty_notebook title)))
+
+let kernel_id_json ~kernel_guid ~ws_addr ~ws_port = 
     let open Yojson.Basic in
     to_string 
         (`Assoc [
@@ -138,247 +87,36 @@ let kernel_id_message kernel_guid ws_addr ws_port =
             "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
         ])
 
-let connection_file  
-    ~ip_addr
-    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
-    ~zmq_heartbeat_port ~zmq_stdin_port
-    = 
-    let open Yojson.Basic in
-    to_string 
-        (`Assoc [
-          "stdin_port", `Int zmq_stdin_port; 
-          "ip", `String ip_addr; 
-          "control_port", `Int zmq_control_port; 
-          "hb_port", `Int zmq_heartbeat_port; 
-          "signature_scheme", `String "hmac-sha256"; 
-          "key", `String ""; 
-          "shell_port", `Int zmq_shell_port; 
-          "transport", `String "tcp"; 
-          "iopub_port", `Int zmq_iopub_port
-        ])
-
-type kernel =
-    {
-        process : Lwt_process.process_none;
-        guid : string;
-        (* zmq sockets *)
-        stdin : [`Dealer] Lwt_zmq.Socket.t;
-        control : [`Dealer] Lwt_zmq.Socket.t;
-        shell : [`Dealer] Lwt_zmq.Socket.t;
-        iopub : [`Sub] Lwt_zmq.Socket.t;
-        heartbeat : [`Req] Lwt_zmq.Socket.t;
-    }
-
-module Kernel_map = Map.Make(String)
-
-let g_kernels : kernel Kernel_map.t ref = ref Kernel_map.empty
-let g_notebooks : string Kernel_map.t ref = ref Kernel_map.empty
-
-let kernel_of_notebooks notebook_guid = Kernel_map.find notebook_guid !g_notebooks
-let kernel_data kernel_guid = Kernel_map.find kernel_guid !g_kernels
-
-let write_connection_file 
-    ~kernel_guid ~ip_addr
-    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
-    ~zmq_heartbeat_port ~zmq_stdin_port =
-
-    let fname = Filename.concat notebook_path (kernel_guid ^ ".json") in
-    let f = open_out fname in
-    output_string f 
-        (connection_file ~ip_addr ~zmq_shell_port ~zmq_iopub_port
-            ~zmq_control_port ~zmq_heartbeat_port ~zmq_stdin_port);
-    close_out f;
-    fname
-
 let kernel_response req =
     (* I think at this point we create the kernel and add a mapping *)
-    let kernel_guid = Uuidm.(to_string (create `V4)) in
-    let conn_file_name = write_connection_file
-        ~kernel_guid ~ip_addr:ws_addr
+    let kernel = Kernel.init_kernel
+        ~zmq ~path:notebook_path ~ip_addr:ws_addr
         ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
         ~zmq_heartbeat_port ~zmq_stdin_port 
     in
-    let command = ("", [| "iocaml.top"; 
-                            "-connection-file"; conn_file_name;
-                            "-log"; "iocaml.log";
-                      |]) 
-    in
-    lwt notebook_guid =  
-        let uri = Request.uri req in
-        match Uri.get_query_param uri "notebook" with
-        | None -> Lwt.fail (Failure "/kernels expecting notebook id")
-        | Some(x) -> return x
-    in
-    lwt () = Lwt_io.eprintf "kernel_guid: %s\n" kernel_guid in
-    lwt () = Lwt_io.eprintf "notebook_guid: %s\n" notebook_guid in
-    let make_socket typ addr port = 
-        let socket = ZMQ.Socket.(create zmq typ) in
-        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
-        Lwt_zmq.Socket.of_socket socket
-    in
-    (* see kernel/channels.py *)
-    let shell_socket addr port = 
-        let socket = ZMQ.Socket.(create zmq dealer) in
-        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
-        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
-        Lwt_zmq.Socket.of_socket socket
-    in
-    let iopub_socket addr port = 
-        let socket = ZMQ.Socket.(create zmq sub) in
-        let () = ZMQ.Socket.subscribe socket "" in
-        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
-        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
-        Lwt_zmq.Socket.of_socket socket
-    in
-    let heartbeat_socket addr port = 
-        let socket = ZMQ.Socket.(create zmq req) in
-        let () = ZMQ.Socket.set_linger_period socket 0 in
-        let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
-        Lwt_zmq.Socket.of_socket socket
-    in
-    let k = 
-        {
-            process = Lwt_process.open_process_none command;
-            guid = kernel_guid;
-            stdin = make_socket ZMQ.Socket.dealer ws_addr zmq_stdin_port;
-            control = make_socket ZMQ.Socket.dealer ws_addr zmq_control_port;
-            shell = shell_socket ws_addr zmq_shell_port;
-            iopub = iopub_socket ws_addr zmq_iopub_port;
-            heartbeat = heartbeat_socket ws_addr zmq_heartbeat_port;
-        }
-    in
-    let () = 
-        g_notebooks := Kernel_map.add notebook_guid k.guid !g_notebooks;
-        g_kernels := Kernel_map.add kernel_guid k !g_kernels
-    in
-    Server.respond_string ~status:`OK 
-        ~body:(kernel_id_message kernel_guid ws_addr ws_port) ()
+    (*let () = 
+        Kernel.g_notebooks := Kernel.KMap.add notebook_guid k.Kernel.guid !Kernel.g_notebooks;
+        Kernel.g_kernels := Kernel.KMap.add kernel_guid k !Kernel.g_kernels
+    in*)
+    Server.respond_string ~status:`OK
+        ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~ws_addr ~ws_port) ()
 
 let notebook_list () = 
     lwt l = Files.list_notebooks notebook_path in
     let open Yojson.Basic in
-    let nb nb =
+    let json nb =
+        let nguid = Kernel.notebook_of_name nb in
        `Assoc [ 
-            "kernel_id", `Null;
-            "name", `String Filename.(chop_suffix (basename nb) ".ipynb");
-            "notebook_id", `String Uuidm.(to_string (create `V4));
+            "kernel_id", 
+                (match Kernel.kernel_of_notebook nguid with 
+                 | None -> `Null 
+                 | Some(x) -> `String x);
+            "name", `String nb;
+            "notebook_id", `String nguid;
        ]
     in
-    let json = `List (List.map nb l) in
+    let json = `List (List.map json l) in
     Server.respond_string ~status:`OK ~body:(to_string json) ()
-
-(* messages sent by paths in the url *)
-module Path_messages = struct
-
-    (* regex's for parsing url paths *)
-    open Re
-
-    let s = char '/'
-    let d = char '-'
-    let hex = alt [digit; (no_case (rg 'a' 'f'))]
-    let hex n = repn hex n (Some(n))
-    let guid = seq [ hex 8; d; hex 4; d; hex 4; d; hex 4; d; hex 12 ]
-    let re_guid = compile guid
-
-    let notebooks = str "/notebooks"
-    let clusters = str "/clusters"
-    let kernels = str "/kernels"
-    let static = str "/static"
-
-    let re_notebooks = compile notebooks
-    let re_clusters = compile clusters
-    let re_kernels = compile kernels
-    let re_static = compile static
-
-    type message =
-        [ `Static
- 
-        | `Root
-        | `Root_guid
-        | `Root_new
-        | `Root_copy
-        | `Root_name
-        
-        | `Notebooks
-        | `Notebooks_guid of string
-        | `Notebooks_checkpoint of string
-        | `Notebooks_checkpoint_id of string * string
-
-        | `Clusters
-
-        | `Kernels
-        | `Kernels_guid of string
-        | `Kernels_restart of string
-        | `Kernels_interrupt of string
-        
-        | `Error_not_found ]
-
-    type ws_message = 
-        [ `Ws_shell of string
-        | `Ws_iopub of string
-        | `Ws_stdin of string
-        | `Error_not_found ]
-
-    let rec execl s = function
-        | [] -> return `Error_not_found
-        | (re,fn) :: tl ->
-            return (try Some(fn (get_all (exec re s))) with _ -> None)
-            >>= function
-                | Some(x) -> return x
-                | None -> execl s tl
-
-
-    let compile_decode p (re,fn) = compile (seq (p::re)), fn
-
-    let decode_notebooks = 
-        let cp, guid = str "checkpoints", group guid in
-        let re = [
-            [eos], (fun _ -> `Notebooks);
-            [s; guid; eos], (fun r -> `Notebooks_guid(r.(1)));
-            [s; guid; s; cp; eos], (fun r -> `Notebooks_checkpoint(r.(1)));
-            [s; guid; s; cp; s; guid; eos], (fun r -> `Notebooks_checkpoint_id(r.(1), r.(2)));
-        ] in
-        let re = List.map (compile_decode notebooks) re in
-        fun path -> execl path re
-
-    let decode_kernels = 
-        let guid = group guid in
-        let re = [
-            [eos], (fun _ -> `Kernels);
-            [s; guid; eos], (fun r -> `Kernels_guid(r.(1)));
-            [s; guid; s; str "restart"; eos], (fun r -> `Kernels_restart(r.(1)));
-            [s; guid; s; str "interrupt"; eos], (fun r -> `Kernels_interrupt(r.(1)));
-        ] in
-        let re = List.map (compile_decode kernels) re in
-        fun path -> execl path re
-
-    let decode_ws = 
-        let guid = group guid in
-        let re = [
-            [s; guid; s; str "shell"; eos], (fun r -> `Ws_shell(r.(1)));
-            [s; guid; s; str "iopub"; eos], (fun r -> `Ws_iopub(r.(1)));
-            [s; guid; s; str "stdin"; eos], (fun r -> `Ws_stdin(r.(1)));
-        ] in
-        let re = List.map (compile_decode kernels) re in
-        fun path -> execl path re
-
-    let decode path = 
-        let d = [
-            (fun p -> p="" || p="/"), (fun _ -> return `Root);
-            execp re_static, (fun _ -> return `Static);
-            execp re_notebooks, decode_notebooks;
-            execp re_kernels, decode_kernels;
-            execp re_clusters, (fun _ -> return `Clusters);
-        ] in
-        let rec check = function
-            | [] -> return `Error_not_found
-            | (m,v)::tl ->
-                return (m path) 
-                >>= fun m -> if m then v path else check tl
-        in
-        check d
-
-end
 
 let header typ = 
     let h = Header.init () in
@@ -392,6 +130,10 @@ let header_css = header "text/css"
 let header_javascript = header "application/javascript"
 let header_json = header "application/json"
 let header_font = header "application/x-font-woff"
+let header_redirect guid = 
+    let h = header_html in
+    let h = Header.add h "Location" ("/" ^ guid) in
+    h
 
 let header_of_extension filename = 
     if Filename.check_suffix filename ".js" then header_javascript
@@ -402,7 +144,6 @@ let header_of_extension filename =
 
 let make_server address port =
     let callback conn_id ?body req =
-        let open Path_messages in
         let uri = Request.uri req in
         let meth = Request.meth req in
         let path = Uri.path uri in
@@ -413,7 +154,7 @@ let make_server address port =
             Server.respond_not_found ()
         in
 
-        lwt decode = decode path in
+        lwt decode = Uri_paths.decode path in
         let ()  = 
             (* XXX log all messages that are not just serving notebook files *)
             if decode <> `Static then 
@@ -425,10 +166,12 @@ let make_server address port =
 
         | `Root ->
             (*
-            let notebook = generate_notebook_html () in
+            let notebook = Pages.generate_notebook_html 
+                ~title:"Untitled0" ~path:notebook_path ~notebook_guid:Uuidm.(to_string (create `V4))
+            in
             Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
             *)
-            let dashboard = generate_dashboard_html () in
+            let dashboard = Pages.generate_dashboard_html ~path:notebook_path in
             Server.respond_string ~status:`OK ~headers:header_html ~body:dashboard ()
 
         | `Static -> 
@@ -436,11 +179,30 @@ let make_server address port =
             if Sys.file_exists fname then 
                 Server.respond_file ~headers:(header_of_extension fname) ~fname ()
             else not_found ()
-    
-        | `Root_guid -> not_found ()
-        | `Root_new -> not_found ()
-        | `Root_copy -> not_found ()
-        | `Root_name -> not_found ()
+
+            (* experiment - serve from crunched file system 
+            let fname = Server.resolve_file ~docroot:"" ~uri:(Request.uri req) in
+            let fname = String.sub fname 7 (String.length fname-7) in (* strip static *)
+            (match Crunched.read fname with
+            | None -> not_found()
+            | Some(x) -> 
+                Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
+            *)
+
+        | `Root_guid(guid) -> not_found ()
+
+        | `Root_new -> 
+            (* create new .ipynb file *)
+            lwt () = Lwt_io.eprintf "*** new\n" in
+            lwt name = Files.(list_notebooks notebook_path >>= new_notebook_name) in
+            lwt () = write_empty_notebook name in
+            let guid = Kernel.notebook_of_name name in
+            (* 302 Found, redirect to `Root_guid *)
+            Server.respond_string ~status:`Found ~headers:(header_redirect guid) ~body:"" ()
+
+        | `Root_copy(guid) -> not_found ()
+        | `Root_name(guid) -> not_found ()
+
         | `Notebooks -> notebook_list ()
 
         | `Notebooks_guid(_) when meth = `GET -> 
@@ -459,7 +221,8 @@ let make_server address port =
             Server.respond_string ~status:`OK ~body:"[]" ()
 
         | `Kernels -> 
-            kernel_response req
+            (*kernel_response req*)
+            not_found ()
 
         | `Kernels_guid(_) -> not_found ()
         | `Kernels_restart(_) -> not_found ()
@@ -473,91 +236,24 @@ let make_server address port =
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
-let zmq_of_ws_message data = 
-    let open Yojson.Basic in
-    let data = from_string data in
-    match data with
-    | `Assoc l ->
-        [   
-            "<IDS|MSG>";
-            "";
-            to_string (List.assoc "header" l);
-            to_string (List.assoc "parent_header" l);
-            to_string (List.assoc "metadata" l);
-            to_string (List.assoc "content" l);
-        ]
-    | _ -> raise (Failure "deserialize_ws")
-
-let ws_of_zmq_message data = 
-    let open Yojson.Basic in
-    let rec find = function
-        | [] -> raise (Failure "bad zmq message")
-        | "<IDS|MSG>"::_::h::p::m::c::_ -> from_string h, from_string p,
-                                           from_string m, from_string c
-        | h::t -> find t
-    in
-    let header,parent,meta,content = find data in
-    let extract data = 
-        match header with `Assoc l -> (List.assoc data l) | _ -> `String "error"
-    in
-    to_string
-        (`Assoc [
-            "parent_header", parent;
-            "msg_type", extract "msg_type";
-            "msg_id", extract "msg_id";
-            "content", content;
-            "header", header;
-            "metadata", meta;
-        ])
-
-let ws_to_zmq name stream socket = 
-    lwt frame = Lwt_stream.next stream in
-    let data = Websocket.Frame.content frame in
-    lwt () = Lwt_io.eprintf "%s: %s\n" name data in
-    Lwt_zmq.Socket.send_all socket (zmq_of_ws_message data)
-
-let zmq_to_ws name socket push = 
-    lwt frames = Lwt_zmq.Socket.recv_all socket in
-    lwt () = 
-        Lwt_list.iter_s (Lwt_io.eprintf "%s: %s\n" name) frames 
-    in
-    let frame = ws_of_zmq_message frames in
-    Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string frame))) 
-
-let rec ws_zmq_comms name socket uri (stream,push) = 
-    lwt () = Lwt_io.eprintf "ws_zmq_comms: %s\n" name in
-    lwt _ = zmq_to_ws name socket push <?> ws_to_zmq name stream socket in
-    ws_zmq_comms name socket uri (stream,push)
-
-let ws_init uri (stream,push) = 
-    Lwt_stream.next stream >>= fun frame ->
-        (* we get one special message per channel, after which it's comms time *)
-        lwt () = Lwt_io.eprintf "cookie: %s\n" (Websocket.Frame.content frame) in
-        (* parse the uri to find out which socket we want *)
-        let find guid = Kernel_map.find guid !g_kernels in
-        match_lwt Path_messages.decode_ws (Uri.path uri) with
-        | `Ws_shell(guid) -> ws_zmq_comms "shell" (find guid).shell uri (stream,push)
-        | `Ws_stdin(guid) -> ws_zmq_comms "stdin" (find guid).stdin uri (stream,push)
-        | `Ws_iopub(guid) -> ws_zmq_comms "iopub" (find guid).iopub uri (stream,push)
-        | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
-
 let run_servers () = 
     let http_server = make_server http_addr http_port in
     let ws_server = 
         return 
             (Websocket.establish_server 
                 (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string ws_addr, ws_port))
-                ws_init)
+                Bridge.ws_init)
     in
     let rec wait_forever () = Lwt_unix.sleep 1000.0 >>= wait_forever in
     let ws_server = ws_server >>= fun _ -> wait_forever () in
     Lwt.join [ http_server; ws_server ]
 
 let close_kernels () = 
-    Kernel_map.iter 
+    (* kill all running kernels *)
+    Kernel.iter_kernels
         (fun _ v -> 
-            eprintf "killing kernel: %s\n" v.guid;
-            v.process#terminate) !g_kernels
+            eprintf "killing kernel: %s\n" v.Kernel.guid;
+            v.Kernel.process#terminate) 
 
 let _ = 
     Sys.catch_break true;

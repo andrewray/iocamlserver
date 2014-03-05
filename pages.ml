@@ -377,7 +377,24 @@ let notebook_scripts static_url =
 <script src=$str:static_url "notebook/js/celltoolbarpresets/slideshow.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
 
-let dashboard_site = 
+let dashboard_site path = 
+    let split_path = 
+        let open Re in (* requires path to start with a / *)
+        let sl = char '/' in
+        let path_comp = compile (seq [ sl; group (rep (compl [sl])) ]) in
+        let rec f pos = 
+            try 
+                let x = exec ~pos path_comp path in
+                get x 1 :: f (snd (get_ofs x 0))
+            with Not_found -> []
+        in
+        f 0
+    in
+    let split_path' =
+        <:html< <li> <span>/</span></li> >> :: 
+        List.map (fun c -> <:html< <li>$str:c$ <span>/</span></li> >>) split_path 
+    in
+
 <:html<
 
 <div id="ipython-main-app" class="container">
@@ -407,7 +424,7 @@ let dashboard_site =
           <div id="notebook_list_header" class="row-fluid list_header">
             <div id="project_name">
               <ul class="breadcrumb">
-                    <!-- COMPONENTS  -->
+                    $list:split_path'$
               </ul>
             </div>
           </div>
@@ -434,4 +451,46 @@ let dashboard_scripts static_url =
     <script src=$str:static_url "tree/js/clusterlist.js"$ type="text/javascript" charset="utf-8"> </script>
     <script src=$str:static_url "tree/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
+
+let generate_notebook_html ~title ~path ~notebook_guid = 
+    
+    let static_url x = "/static/" ^ x in
+    let mathjax_url = "http://cdn.mathjax.org/mathjax/latest/MathJax.js" in
+    let base_project_url = "/" in
+    let data_base_project_url = "/" in
+    let data_base_kernel_url = "/" in
+    let body_class = "notebook_app" in
+
+    let style = notebook_stylesheet mathjax_url static_url in
+    let header = notebook_header in
+    let site = notebook_site in
+    let script = notebook_scripts static_url in
+
+    let page = page 
+        title base_project_url static_url
+        path data_base_project_url data_base_kernel_url
+        notebook_guid body_class
+        style header site script
+    in
+    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
+
+let generate_dashboard_html ~path = 
+    let static_url x = "/static/" ^ x in
+    let base_project_url = "/" in
+    let data_base_project_url = "/" in
+    let data_base_kernel_url = "/" in
+    let body_class = "" in
+
+    let style = dashboard_stylesheet static_url in
+    let header = empty in
+    let site = dashboard_site path in
+    let script = dashboard_scripts static_url in
+
+    let page = page 
+        "Dashboard" base_project_url static_url
+        path data_base_project_url data_base_kernel_url
+        "" body_class
+        style header site script
+    in
+    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
 

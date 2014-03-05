@@ -7,6 +7,7 @@
  * Description: Utilities to deal with notebooks on the file system
  *
  *)
+open Lwt
 
 module SSet = Set.Make(String)
 
@@ -18,11 +19,11 @@ let list_notebooks path =
             lwt s = Lwt_unix.stat Filename.(concat path n) in
             if Filename.check_suffix n ".ipynb" && 
                Lwt_unix.(s.st_kind = S_REG) then 
-               f (n::l)
+               f (Filename.(chop_suffix (basename n) ".ipynb")::l)
             else
                 f l
         with _ ->
-            Lwt.return l
+            return l
     in
     f []
 
@@ -31,10 +32,10 @@ let new_notebook_name cur =
     let name = "Untitled" in
     let rec f i = 
         let name = name ^ string_of_int i in
-        if SSet.mem (name ^ ".ipynb") set then
-            f (i+1)
-        else
-            name
+            return (SSet.mem (name ^ ".ipynb") set)
+        >>= function
+            | true -> f (i+1)
+            | false -> return name
     in
     f 0
 

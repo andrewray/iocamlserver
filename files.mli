@@ -12,5 +12,5 @@
 val list_notebooks : string -> string list Lwt.t
 
 (** get name for a new notebook, given list of current notebooks *)
-val new_notebook_name : string list -> string
+val new_notebook_name : string list -> string Lwt.t
 
