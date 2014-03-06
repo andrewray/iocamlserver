@@ -20,36 +20,89 @@ type kernel =
         heartbeat : [`Req] Lwt_zmq.Socket.t;
     }
 
-module KMap = Map.Make(String)
+module M = struct
 
-(* notebook name to notebook-guid *)
-let g_names : string KMap.t ref = ref KMap.empty
+    (* there are 4 data elements to map between,
 
-(* notebook=guid to kernel=guid *)
-let g_notebooks : string KMap.t ref = ref KMap.empty
+        1. filename
+        2. notebook_guid
+        3. kernel_guid
+        4. kernel 
 
-(* kernel-guid to kernel *)
-let g_kernels : kernel KMap.t ref = ref KMap.empty
+        filenames are either got from File.list_notebook, which are initiated 
+        from the dashboard, or by a new notebook request, copy etc.
 
-(* get notebook guid from name.  if it doesnt exist, add it *)
-let notebook_of_name name = 
-    try KMap.find name !g_names
-    with Not_found ->
-        let guid = Uuidm.(to_string (create `V4)) in
-        g_names := KMap.add name guid !g_names;
+        notebook_guids are derived from filenames.
+        kernel_guids are derived from notebook_guids.
+
+        kernels are created and put in a map keyed by kernel_guids when the kernel
+        is created.  they may also be destoyed, or restarted.
+
+        The forward mapping filename->notebook_guid->kernel_guid->kernel is
+        straightforward.
+
+        The inverse mapping uses a map from kernel_guids to filenames.
+
+    *)
+
+    module KMap = Map.Make(String)
+
+    let (>>) f g x = g (f x)
+
+    (* guid generation seed *)
+    let seed = 
+        match Uuidm.of_string "65506491-a9a4-439f-be2d-03be8732c88e" with
+        | None -> failwith "couldn't init seed"
+        | Some(x) -> x
+
+    (* kernel_guid -> kernel map *)
+    let kernels : kernel KMap.t ref = ref KMap.empty
+    (* kernel_guid -> filename map *)
+    let filenames : string KMap.t ref = ref KMap.empty
+
+    (* forward accessor functions *)
+
+    let rec notebook_guid_of_filename filename =
+        (* everytime we ask for a notebook guid, add the reverse mapping *)
+        let guid = Uuidm.(to_string (v3 seed filename)) in
+        filenames := KMap.add (kernel_guid_of_notebook_guid guid) filename !filenames; 
         guid
+    
+    and kernel_guid_of_notebook_guid notebook_guid = 
+        Uuidm.(to_string (v3 seed notebook_guid))
+ 
+    let kernel_guid_of_filename = 
+        notebook_guid_of_filename >> kernel_guid_of_notebook_guid
 
-(* get kernel for notebook *)
-let kernel_of_notebook guid = 
-    try Some (KMap.find guid !g_notebooks)
-    with _ -> None
+    let kernel_of_kernel_guid kernel_guid = 
+        try Some(KMap.find kernel_guid !kernels)
+        with _ -> None
+    
+    let kernel_of_notebook_guid = kernel_guid_of_notebook_guid >> kernel_of_kernel_guid
 
-let add_notebook_to_kernel nguid kguid = 
-    g_notebooks := KMap.add nguid kguid !g_notebooks
+    let kernel_of_filename = notebook_guid_of_filename >> kernel_of_notebook_guid
 
-let get_kernel kernel_guid = KMap.find kernel_guid !g_kernels
+    (* reverse accessor functions *)
 
-let iter_kernels f = KMap.iter f !g_kernels
+    let filename_of_kernel_guid kernel_guid = 
+        (* dont expect this to fail, but it could *)
+        try KMap.find kernel_guid !filenames
+        with _ -> failwith "could not map kernel_guid to filename"
+
+    let notebook_guid_of_kernel_guid = filename_of_kernel_guid >> notebook_guid_of_filename
+    let filename_of_notebook_guid = kernel_guid_of_notebook_guid >> filename_of_kernel_guid
+
+    let kernel_guid_of_kernel kernel = kernel.guid
+    let notebook_guid_of_kernel = kernel_guid_of_kernel >> notebook_guid_of_kernel_guid
+    let filename_of_kernel = kernel_guid_of_kernel >> filename_of_kernel_guid
+
+    (* add/delete active kernels from the map *)
+
+    let add_kernel kernel_guid kernel = kernels := KMap.add kernel_guid kernel !kernels
+    let delete_kernel kernel_guid = kernels := KMap.remove kernel_guid !kernels
+    let iter_kernels f = KMap.iter f !kernels
+
+end
 
 let connection_file  
     ~ip_addr
@@ -85,11 +138,11 @@ let write_connection_file
     fname
 
 let init_kernel 
-    ~zmq ~path ~ip_addr
+    ~zmq ~path ~notebook_guid ~ip_addr
     ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
     ~zmq_heartbeat_port ~zmq_stdin_port 
     =
-    let kernel_guid = Uuidm.(to_string (create `V4)) in
+    let kernel_guid = M.kernel_guid_of_notebook_guid notebook_guid in
     (* should be started with command line options *)
     let conn_file_name = write_connection_file
         ~path ~kernel_guid ~ip_addr
@@ -126,15 +179,19 @@ let init_kernel
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
         Lwt_zmq.Socket.of_socket socket
     in
-    {
-        process = Lwt_process.open_process_none command;
-        guid = kernel_guid;
-        stdin = make_socket ZMQ.Socket.dealer ip_addr zmq_stdin_port;
-        control = make_socket ZMQ.Socket.dealer ip_addr zmq_control_port;
-        shell = shell_socket ip_addr zmq_shell_port;
-        iopub = iopub_socket ip_addr zmq_iopub_port;
-        heartbeat = heartbeat_socket ip_addr zmq_heartbeat_port;
-    }
-
-
+    let kernel = 
+        {
+            process = Lwt_process.open_process_none command;
+            guid = kernel_guid;
+            stdin = make_socket ZMQ.Socket.dealer ip_addr zmq_stdin_port;
+            control = make_socket ZMQ.Socket.dealer ip_addr zmq_control_port;
+            shell = shell_socket ip_addr zmq_shell_port;
+            iopub = iopub_socket ip_addr zmq_iopub_port;
+            heartbeat = heartbeat_socket ip_addr zmq_heartbeat_port;
+        }
+    in
+    (* add kernel *)
+    M.add_kernel kernel_guid kernel;
+    kernel
+    
 

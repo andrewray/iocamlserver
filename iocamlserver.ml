@@ -87,32 +87,18 @@ let kernel_id_json ~kernel_guid ~ws_addr ~ws_port =
             "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
         ])
 
-let kernel_response req =
-    (* I think at this point we create the kernel and add a mapping *)
-    let kernel = Kernel.init_kernel
-        ~zmq ~path:notebook_path ~ip_addr:ws_addr
-        ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
-        ~zmq_heartbeat_port ~zmq_stdin_port 
-    in
-    (*let () = 
-        Kernel.g_notebooks := Kernel.KMap.add notebook_guid k.Kernel.guid !Kernel.g_notebooks;
-        Kernel.g_kernels := Kernel.KMap.add kernel_guid k !Kernel.g_kernels
-    in*)
-    Server.respond_string ~status:`OK
-        ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~ws_addr ~ws_port) ()
-
 let notebook_list () = 
     lwt l = Files.list_notebooks notebook_path in
     let open Yojson.Basic in
     let json nb =
-        let nguid = Kernel.notebook_of_name nb in
+        let notebook_guid = Kernel.M.notebook_guid_of_filename nb in
        `Assoc [ 
-            "kernel_id", 
-                (match Kernel.kernel_of_notebook nguid with 
+            "kernel_id", (* check if kernel is already running *)
+                (match Kernel.M.kernel_of_notebook_guid notebook_guid with 
                  | None -> `Null 
-                 | Some(x) -> `String x);
+                 | Some(x) -> `String (Kernel.M.kernel_guid_of_kernel x));
             "name", `String nb;
-            "notebook_id", `String nguid;
+            "notebook_id", `String notebook_guid;
        ]
     in
     let json = `List (List.map json l) in
@@ -162,6 +148,12 @@ let make_server address port =
                     (Connection.to_string conn_id) (Uri.to_string uri) path;
         in
 
+        let query_param var = 
+            match Uri.get_query_param uri var with
+            | None -> Lwt.fail (Failure ("failed to get param: " ^ var))
+            | Some(x) -> return x
+        in
+
         match decode with
 
         | `Root ->
@@ -189,14 +181,19 @@ let make_server address port =
                 Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
             *)
 
-        | `Root_guid(guid) -> not_found ()
+        | `Root_guid(guid) -> 
+            let notebook = Pages.generate_notebook_html 
+                ~title:"IOCaml-Notebook" ~path:notebook_path ~notebook_guid:guid
+            in
+            Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
 
         | `Root_new -> 
             (* create new .ipynb file *)
-            lwt () = Lwt_io.eprintf "*** new\n" in
             lwt name = Files.(list_notebooks notebook_path >>= new_notebook_name) in
-            lwt () = write_empty_notebook name in
-            let guid = Kernel.notebook_of_name name in
+            lwt () = Lwt_io.(with_file ~mode:output (name ^ ".ipynb") 
+                (fun f -> write f (empty_notebook name)))
+            in
+            let guid = Kernel.M.notebook_guid_of_filename name in
             (* 302 Found, redirect to `Root_guid *)
             Server.respond_string ~status:`Found ~headers:(header_redirect guid) ~body:"" ()
 
@@ -205,9 +202,19 @@ let make_server address port =
 
         | `Notebooks -> notebook_list ()
 
-        | `Notebooks_guid(_) when meth = `GET -> 
-            Server.respond_string ~status:`OK ~body:(empty_notebook "Untitled0") ()
-
+        | `Notebooks_guid(guid) when meth = `GET ->
+            (try_lwt
+                lwt () = Lwt_io.eprintf "loading notebook %s\n" guid in
+                (* read notebook from file *)
+                let name = try Kernel.M.filename_of_notebook_guid guid with _ -> "bad_file" in 
+                lwt () = Lwt_io.eprintf "filename %s\n" name in
+                lwt notebook = Lwt_io.(with_file ~mode:input (name ^ ".ipynb")
+                    (fun f -> read f))
+                in
+                Server.respond_string ~status:`OK ~body:notebook ()
+            with _ -> 
+                not_found ())
+            
         | `Notebooks_guid(_) when meth = `PUT -> 
             (* save notebook *)
             not_found ()
@@ -220,9 +227,19 @@ let make_server address port =
         | `Clusters ->
             Server.respond_string ~status:`OK ~body:"[]" ()
 
-        | `Kernels -> 
+        | `Kernels when meth = `POST -> 
             (*kernel_response req*)
-            not_found ()
+            (try_lwt
+                lwt notebook_guid = query_param "notebook" in 
+                let kernel = Kernel.init_kernel
+                    ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:ws_addr
+                    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+                    ~zmq_heartbeat_port ~zmq_stdin_port 
+                in
+                Server.respond_string ~status:`OK
+                    ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~ws_addr ~ws_port) ()
+            with _ ->
+                not_found ())
 
         | `Kernels_guid(_) -> not_found ()
         | `Kernels_restart(_) -> not_found ()
@@ -250,7 +267,7 @@ let run_servers () =
 
 let close_kernels () = 
     (* kill all running kernels *)
-    Kernel.iter_kernels
+    Kernel.M.iter_kernels
         (fun _ v -> 
             eprintf "killing kernel: %s\n" v.Kernel.guid;
             v.Kernel.process#terminate) 

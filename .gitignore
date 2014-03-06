@@ -13,3 +13,6 @@ ocaml-cohttp/
 ocaml-websocket/
 ocaml-zmq/
 lwt-zmq/
+_build/
+iocamlserver.byte
+iocamlserver.native
