@@ -120,6 +120,28 @@ let header_redirect guid =
     let h = header_html in
     let h = Header.add h "Location" ("/" ^ guid) in
     h
+let header_date h = 
+    let day = function 
+        | 0 -> "Sun" | 1 -> "Mon" | 2 -> "Tue" | 3 -> "Wed"
+        | 4 -> "Thu" | 5 -> "Fri" | _ -> "Sat"
+    in
+    let month = function
+        | 0 -> "Jan" | 1 -> "Feb" | 2 -> "Mar" | 3 -> "Apr"
+        | 4 -> "May" | 5 -> "Jun" | 6 -> "Jul" | 7 -> "Aug"
+        | 8 -> "Sep" | 9 -> "Oct" | 10 -> "Nov" | _ ->"Dec"
+    in
+    let tm = Unix.(gmtime (gettimeofday ())) in
+    let tm = Unix.(Printf.sprintf "%s, %.2i %s %.4i %.2i:%.2i:%.2i GMT" 
+        (day tm.tm_wday) tm.tm_mday (month tm.tm_mon) (tm.tm_year+1900) tm.tm_hour tm.tm_min tm.tm_sec)
+    in
+    let h = Header.add h "Date" tm in
+    h
+
+let checkpoint_date () = 
+    let tm = Unix.(gmtime (gettimeofday ())) in
+    Unix.(Printf.sprintf "%.4i-%.2i-%.2iT%.2i:%.2i:%.2i.000000+00:00" 
+        (tm.tm_year+1900) (tm.tm_mon+1) tm.tm_mday 
+        tm.tm_hour tm.tm_min tm.tm_sec)
 
 let header_of_extension filename = 
     if Filename.check_suffix filename ".js" then header_javascript
@@ -157,12 +179,6 @@ let make_server address port =
         match decode with
 
         | `Root ->
-            (*
-            let notebook = Pages.generate_notebook_html 
-                ~title:"Untitled0" ~path:notebook_path ~notebook_guid:Uuidm.(to_string (create `V4))
-            in
-            Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
-            *)
             let dashboard = Pages.generate_dashboard_html ~path:notebook_path in
             Server.respond_string ~status:`OK ~headers:header_html ~body:dashboard ()
 
@@ -206,18 +222,31 @@ let make_server address port =
             (try_lwt
                 lwt () = Lwt_io.eprintf "loading notebook %s\n" guid in
                 (* read notebook from file *)
-                let name = try Kernel.M.filename_of_notebook_guid guid with _ -> "bad_file" in 
+                lwt name = 
+                    try return (Kernel.M.filename_of_notebook_guid guid) 
+                    with _ -> fail (Failure "bad_file") 
+                in 
                 lwt () = Lwt_io.eprintf "filename %s\n" name in
-                lwt notebook = Lwt_io.(with_file ~mode:input (name ^ ".ipynb")
-                    (fun f -> read f))
-                in
+                lwt notebook = Lwt_io.(with_file ~mode:input (name ^ ".ipynb") read) in
                 Server.respond_string ~status:`OK ~body:notebook ()
             with _ -> 
                 not_found ())
             
-        | `Notebooks_guid(_) when meth = `PUT -> 
+        | `Notebooks_guid(guid) when meth = `PUT -> 
             (* save notebook *)
-            not_found ()
+            (match body with
+            | None -> not_found ()
+            | Some(x) -> 
+                try_lwt
+                    lwt body = Cohttp_lwt_body.string_of_body body in
+                    lwt () = Lwt_io.eprintf "saving:\n %s\n" body in
+                    lwt () = Lwt_io.(with_file ~mode:output 
+                        (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb")
+                        (fun f -> write f body))
+                    in
+                    Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
+                with _ ->
+                    not_found ())
 
         | `Notebooks_checkpoint(_) -> 
             Server.respond_string ~status:`OK ~body:"[]" ()
@@ -231,7 +260,7 @@ let make_server address port =
             (*kernel_response req*)
             (try_lwt
                 lwt notebook_guid = query_param "notebook" in 
-                let kernel = Kernel.init_kernel
+                let kernel = Kernel.get_kernel
                     ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:ws_addr
                     ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
                     ~zmq_heartbeat_port ~zmq_stdin_port 

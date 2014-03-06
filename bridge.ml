@@ -73,7 +73,8 @@ let ws_init uri (stream,push) =
     Lwt_stream.next stream >>= fun frame ->
         let open Kernel in
         (* we get one special message per channel, after which it's comms time *)
-        lwt () = Lwt_io.eprintf "cookie: %s\n" (Websocket.Frame.content frame) in
+        let cookie = Websocket.Frame.content frame in
+        lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in
         (* parse the uri to find out which socket we want *)
         let get guid = 
             match M.kernel_of_kernel_guid guid with
@@ -81,9 +82,12 @@ let ws_init uri (stream,push) =
             | Some(x) -> return x
         in
         match_lwt Uri_paths.decode_ws (Uri.path uri) with
-        | `Ws_shell(guid) -> get guid >>= fun k -> ws_zmq_comms "shell" k.shell uri (stream,push)
-        | `Ws_stdin(guid) -> get guid >>= fun k -> ws_zmq_comms "stdin" k.stdin uri (stream,push)
-        | `Ws_iopub(guid) -> get guid >>= fun k -> ws_zmq_comms "iopub" k.iopub uri (stream,push)
+        | `Ws_shell(guid) -> 
+            get guid >>= fun k -> ws_zmq_comms "shell" (k.shell()) uri (stream,push)
+        | `Ws_stdin(guid) ->                                      
+            get guid >>= fun k -> ws_zmq_comms "stdin" (k.stdin()) uri (stream,push)
+        | `Ws_iopub(guid) ->                                      
+            get guid >>= fun k -> ws_zmq_comms "iopub" (k.iopub()) uri (stream,push)
         | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
 
 

@@ -13,11 +13,11 @@ type kernel =
         process : Lwt_process.process_none;
         guid : string;
         (* zmq sockets *)
-        stdin : [`Dealer] Lwt_zmq.Socket.t;
-        control : [`Dealer] Lwt_zmq.Socket.t;
-        shell : [`Dealer] Lwt_zmq.Socket.t;
-        iopub : [`Sub] Lwt_zmq.Socket.t;
-        heartbeat : [`Req] Lwt_zmq.Socket.t;
+        stdin : unit -> [`Dealer] Lwt_zmq.Socket.t;
+        control : unit -> [`Dealer] Lwt_zmq.Socket.t;
+        shell : unit -> [`Dealer] Lwt_zmq.Socket.t;
+        iopub : unit -> [`Sub] Lwt_zmq.Socket.t;
+        heartbeat : unit -> [`Req] Lwt_zmq.Socket.t;
     }
 
 module M = struct
@@ -137,7 +137,7 @@ let write_connection_file
     close_out f;
     fname
 
-let init_kernel 
+let start_kernel 
     ~zmq ~path ~notebook_guid ~ip_addr
     ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
     ~zmq_heartbeat_port ~zmq_stdin_port 
@@ -154,26 +154,29 @@ let init_kernel
                             "-log"; "iocaml.log";
                       |]) 
     in
-    let make_socket typ addr port = 
+    let make_socket typ addr port () = 
         let socket = ZMQ.Socket.(create zmq typ) in
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
         Lwt_zmq.Socket.of_socket socket
     in
+
+    let identity () = Uuidm.(to_string (create `V4)) in
+
     (* see kernel/channels.py *)
-    let shell_socket addr port = 
+    let shell_socket addr port () = 
         let socket = ZMQ.Socket.(create zmq dealer) in
-        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
+        let () = ZMQ.Socket.set_identity socket (identity()) in
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
         Lwt_zmq.Socket.of_socket socket
     in
-    let iopub_socket addr port = 
+    let iopub_socket addr port () = 
         let socket = ZMQ.Socket.(create zmq sub) in
         let () = ZMQ.Socket.subscribe socket "" in
-        let () = ZMQ.Socket.set_identity socket "12345678123456781234567812345678" in
+        let () = ZMQ.Socket.set_identity socket (identity()) in
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
         Lwt_zmq.Socket.of_socket socket
     in
-    let heartbeat_socket addr port = 
+    let heartbeat_socket addr port () = 
         let socket = ZMQ.Socket.(create zmq req) in
         let () = ZMQ.Socket.set_linger_period socket 0 in
         let () = ZMQ.Socket.connect socket ("tcp://" ^ addr ^ ":" ^ string_of_int port) in
@@ -194,4 +197,17 @@ let init_kernel
     M.add_kernel kernel_guid kernel;
     kernel
     
+let get_kernel 
+    ~zmq ~path ~notebook_guid ~ip_addr
+    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+    ~zmq_heartbeat_port ~zmq_stdin_port =
+
+    match M.kernel_of_notebook_guid notebook_guid with
+    | Some(k) -> k
+    | None -> 
+        start_kernel
+            ~zmq ~path ~notebook_guid ~ip_addr
+            ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
+            ~zmq_heartbeat_port ~zmq_stdin_port 
+
 
