@@ -65,45 +65,6 @@ let notebook_path = Unix.getcwd ()
 (* zmq initialization *)
 let zmq = ZMQ.init ()
 
-(* the json that's served for an empty notebook *)
-let empty_notebook title = 
-    let open Yojson.Basic in
-    to_string 
-        (`Assoc [
-            "metadata", `Assoc [ "language", `String "ocaml"; "name", `String title; ];
-            "nbformat", `Int 3; "nbformat_minor", `Int 0;
-            "worksheets", `List [ `Assoc [ "cells", `List []; "metadata", `Assoc []; ]; ];
-        ])
-
-let write_empty_notebook title = 
-    Lwt_io.(with_file ~mode:output (title ^ ".ipynb") 
-                (fun f -> write f (empty_notebook title)))
-
-let kernel_id_json ~kernel_guid ~ws_addr ~ws_port = 
-    let open Yojson.Basic in
-    to_string 
-        (`Assoc [
-            "kernel_id", `String kernel_guid;
-            "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
-        ])
-
-let notebook_list () = 
-    lwt l = Files.list_notebooks notebook_path in
-    let open Yojson.Basic in
-    let json nb =
-        let notebook_guid = Kernel.M.notebook_guid_of_filename nb in
-       `Assoc [ 
-            "kernel_id", (* check if kernel is already running *)
-                (match Kernel.M.kernel_of_notebook_guid notebook_guid with 
-                 | None -> `Null 
-                 | Some(x) -> `String (Kernel.M.kernel_guid_of_kernel x));
-            "name", `String nb;
-            "notebook_id", `String notebook_guid;
-       ]
-    in
-    let json = `List (List.map json l) in
-    Server.respond_string ~status:`OK ~body:(to_string json) ()
-
 let header typ = 
     let h = Header.init () in
     let h = Header.add h "Content-Type" typ in
@@ -150,17 +111,77 @@ let header_of_extension filename =
     else if Filename.check_suffix filename ".woff" then header_font
     else header_none
 
-let make_server address port =
+(* the json that's served for an empty notebook *)
+let empty_notebook title = 
+    let open Yojson.Basic in
+    to_string 
+        (`Assoc [
+            "metadata", `Assoc [ "language", `String "ocaml"; "name", `String title; ];
+            "nbformat", `Int 3; "nbformat_minor", `Int 0;
+            "worksheets", `List [ `Assoc [ "cells", `List []; "metadata", `Assoc []; ]; ];
+        ])
+
+let write_empty_notebook title = 
+    Lwt_io.(with_file ~mode:output (title ^ ".ipynb") 
+                (fun f -> write f (empty_notebook title)))
+
+let kernel_id_json ~kernel_guid ~ws_addr ~ws_port = 
+    let open Yojson.Basic in
+    to_string 
+        (`Assoc [
+            "kernel_id", `String kernel_guid;
+            "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
+        ])
+
+let not_found () = 
+    lwt () = Lwt_io.eprintf "Not_found\n" in
+    Server.respond_not_found ()
+ 
+let notebook_list () = 
+    lwt l = Files.list_notebooks notebook_path in
+    let open Yojson.Basic in
+    let json nb =
+        let notebook_guid = Kernel.M.notebook_guid_of_filename nb in
+       `Assoc [ 
+            "kernel_id", (* check if kernel is already running *)
+                (match Kernel.M.kernel_of_notebook_guid notebook_guid with 
+                 | None -> `Null 
+                 | Some(x) -> `String (Kernel.M.kernel_guid_of_kernel x));
+            "name", `String nb;
+            "notebook_id", `String notebook_guid;
+       ]
+    in
+    let json = `List (List.map json l) in
+    Server.respond_string ~status:`OK ~body:(to_string json) ()
+
+let find_dict name json = 
+    match json with
+    | `Assoc(l) -> ((wrap2 List.assoc) name l)
+    | _ -> fail (Failure "find_dict")
+
+let get_string = function
+    | `String s -> return s 
+    | _ -> fail (Failure "get_string")
+
+(* extract filename from metadata *)
+let get_filename_of_ipynb s = 
+    Yojson.Basic.from_string s |> find_dict "metadata" >>= find_dict "name" >>= get_string
+
+let save_notebook cur_guid body = 
+    lwt filename = get_filename_of_ipynb body in
+    let guid = Kernel.M.notebook_guid_of_filename filename in
+    lwt () = Lwt_io.(with_file ~mode:output 
+        (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb")
+        (fun f -> write f body))
+    in
+    (* what if cur_guid != guid ie a rename *)
+    Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
+
+let http_server address port =
     let callback conn_id ?body req =
         let uri = Request.uri req in
         let meth = Request.meth req in
         let path = Uri.path uri in
-        
-        let not_found () = 
-            Printf.eprintf "%s: ERROR: %s -> %s\n%!" 
-                (Connection.to_string conn_id) (Uri.to_string uri) path;
-            Server.respond_not_found ()
-        in
 
         lwt decode = Uri_paths.decode path in
         let ()  = 
@@ -220,13 +241,11 @@ let make_server address port =
 
         | `Notebooks_guid(guid) when meth = `GET ->
             (try_lwt
-                lwt () = Lwt_io.eprintf "loading notebook %s\n" guid in
                 (* read notebook from file *)
                 lwt name = 
                     try return (Kernel.M.filename_of_notebook_guid guid) 
                     with _ -> fail (Failure "bad_file") 
                 in 
-                lwt () = Lwt_io.eprintf "filename %s\n" name in
                 lwt notebook = Lwt_io.(with_file ~mode:input (name ^ ".ipynb") read) in
                 Server.respond_string ~status:`OK ~body:notebook ()
             with _ -> 
@@ -239,12 +258,7 @@ let make_server address port =
             | Some(x) -> 
                 try_lwt
                     lwt body = Cohttp_lwt_body.string_of_body body in
-                    lwt () = Lwt_io.eprintf "saving:\n %s\n" body in
-                    lwt () = Lwt_io.(with_file ~mode:output 
-                        (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb")
-                        (fun f -> write f body))
-                    in
-                    Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
+                    save_notebook guid body           
                 with _ ->
                     not_found ())
 
@@ -282,17 +296,18 @@ let make_server address port =
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
+let browser_command http_addr http_port =
+   ("", [| "xdg-open"; "http://" ^ http_addr ^ ":" ^ string_of_int http_port |]) 
+
 let run_servers () = 
-    let http_server = make_server http_addr http_port in
-    let ws_server = 
-        return 
-            (Websocket.establish_server 
-                (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string ws_addr, ws_port))
-                Bridge.ws_init)
+    let http_server = http_server http_addr http_port in
+    let _ = 
+        Websocket.establish_server 
+            (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string ws_addr, ws_port))
+            Bridge.ws_init
     in
-    let rec wait_forever () = Lwt_unix.sleep 1000.0 >>= wait_forever in
-    let ws_server = ws_server >>= fun _ -> wait_forever () in
-    Lwt.join [ http_server; ws_server ]
+    let _ = Lwt_process.open_process_none (browser_command http_addr http_port) in
+    http_server
 
 let close_kernels () = 
     (* kill all running kernels *)

@@ -487,7 +487,7 @@ let generate_dashboard_html ~path =
     let script = dashboard_scripts static_url in
 
     let page = page 
-        "Dashboard" base_project_url static_url
+        "IOCaml Dashboard" base_project_url static_url
         path data_base_project_url data_base_kernel_url
         "" body_class
         style header site script
