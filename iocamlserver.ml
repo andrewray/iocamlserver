@@ -175,6 +175,7 @@ let save_notebook cur_guid body =
     Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
 
 let http_server address port ws_port =
+
     let callback conn_id ?body req =
         let uri = Request.uri req in
         let meth = Request.meth req in
@@ -201,19 +202,12 @@ let http_server address port ws_port =
             Server.respond_string ~status:`OK ~headers:header_html ~body:dashboard ()
 
         | `Static -> 
-            let fname = Server.resolve_file ~docroot:"ipython/html" ~uri:(Request.uri req) in
-            if Sys.file_exists fname then 
-                Server.respond_file ~headers:(header_of_extension fname) ~fname ()
-            else not_found ()
-
-            (* experiment - serve from crunched file system 
+            (* serve from crunched file system  *)
             let fname = Server.resolve_file ~docroot:"" ~uri:(Request.uri req) in
-            let fname = String.sub fname 7 (String.length fname-7) in (* strip static *)
-            (match Crunched.read fname with
+            (match Filesys.read fname with
             | None -> not_found()
             | Some(x) -> 
                 Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
-            *)
 
         | `Root_guid(guid) -> 
             let notebook = Pages.generate_notebook_html 
