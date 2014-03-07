@@ -235,4 +235,14 @@ let get_kernel ~zmq ~path ~notebook_guid ~ip_addr =
     | None -> 
         start_kernel ~zmq ~path ~notebook_guid ~ip_addr
 
+let close_kernel guid =
+    match M.kernel_of_kernel_guid guid with
+    | None -> ()
+    | Some(kernel) ->
+        (* kill the kernel *)
+        kernel.process#terminate;
+        (* XXX close sockets? *)
+        (* remove from map *)
+        M.(delete_kernel guid)
+
 

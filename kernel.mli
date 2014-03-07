@@ -60,4 +60,5 @@ val start_kernel :
 val get_kernel :
     zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string -> kernel Lwt.t
 
+val close_kernel : string -> unit
 

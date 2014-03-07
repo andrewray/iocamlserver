@@ -269,7 +269,6 @@ let http_server address port ws_port =
             Server.respond_string ~status:`OK ~body:"[]" ()
 
         | `Kernels when meth = `POST -> 
-            (*kernel_response req*)
             (try_lwt
                 lwt notebook_guid = query_param "notebook" in 
                 lwt kernel = Kernel.get_kernel
@@ -281,8 +280,27 @@ let http_server address port ws_port =
                 not_found ())
 
         | `Kernels_guid(_) -> not_found ()
-        | `Kernels_restart(_) -> not_found ()
-        | `Kernels_interrupt(_) -> not_found ()
+
+        | `Kernels_restart(guid) ->
+            (try_lwt
+                (* stop kernel *) 
+                let () = Kernel.close_kernel guid in
+                (* re-start kernel *)
+                let notebook_guid = Kernel.M.notebook_guid_of_kernel_guid guid in
+                lwt kernel = Kernel.get_kernel
+                    ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
+                in
+                Server.respond_string ~status:`OK
+                    ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~address ~ws_port) ()
+            with _ ->
+                not_found ())
+
+        | `Kernels_interrupt(guid) -> 
+            (match Kernel.M.kernel_of_kernel_guid guid with
+            | Some(kernel) ->
+                kernel.Kernel.process#kill Sys.sigint; (* interrupt *)
+                Server.respond_string ~status:`OK ~body:"" ()
+            | None -> not_found ())
 
         | `Error_not_found | _ -> not_found ()
     in
