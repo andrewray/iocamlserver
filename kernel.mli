@@ -46,18 +46,18 @@ module M : sig
 
 end
 
+val port_available : string -> int -> bool Lwt.t
+val n_ports_available : string -> int -> int -> bool Lwt.t
+
 val write_connection_file :
     path:string -> kernel_guid:string -> ip_addr:string ->
     zmq_shell_port:int -> zmq_iopub_port:int -> zmq_control_port:int ->
     zmq_heartbeat_port:int -> zmq_stdin_port:int -> string
 
 val start_kernel :
-    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string ->
-    zmq_shell_port:int -> zmq_iopub_port:int -> zmq_control_port:int ->
-    zmq_heartbeat_port:int -> zmq_stdin_port:int -> kernel
+    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string -> kernel Lwt.t
 
 val get_kernel :
-    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string ->
-    zmq_shell_port:int -> zmq_iopub_port:int -> zmq_control_port:int ->
-    zmq_heartbeat_port:int -> zmq_stdin_port:int -> kernel
+    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string -> kernel Lwt.t
+
 

@@ -32,7 +32,7 @@ let new_notebook_name cur =
     let name = "Untitled" in
     let rec f i = 
         let name = name ^ string_of_int i in
-            return (SSet.mem (name ^ ".ipynb") set)
+            return (SSet.mem name set)
         >>= function
             | true -> f (i+1)
             | false -> return name

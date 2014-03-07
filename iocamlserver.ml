@@ -49,16 +49,13 @@ open Lwt
 open Cohttp
 open Cohttp_lwt_unix
 
-(* port configuration *)
-let http_addr = "127.0.0.1"
-let http_port = 8889
-let ws_addr = "127.0.0.1"
-let ws_port = 8890
-let zmq_shell_port = 8891
-let zmq_iopub_port = 8892
-let zmq_control_port = 8893
-let zmq_heartbeat_port = 8894
-let zmq_stdin_port = 8895
+let address = "127.0.0.1"
+
+let zmq_shell_port = 58891
+let zmq_iopub_port = 58892
+let zmq_control_port = 58893
+let zmq_heartbeat_port = 58894
+let zmq_stdin_port = 58895
 
 let notebook_path = Unix.getcwd ()
 
@@ -125,12 +122,12 @@ let write_empty_notebook title =
     Lwt_io.(with_file ~mode:output (title ^ ".ipynb") 
                 (fun f -> write f (empty_notebook title)))
 
-let kernel_id_json ~kernel_guid ~ws_addr ~ws_port = 
+let kernel_id_json ~kernel_guid ~address ~ws_port = 
     let open Yojson.Basic in
     to_string 
         (`Assoc [
             "kernel_id", `String kernel_guid;
-            "ws_url", `String ("ws://" ^ ws_addr ^ ":" ^ string_of_int ws_port);
+            "ws_url", `String ("ws://" ^ address ^ ":" ^ string_of_int ws_port);
         ])
 
 let not_found () = 
@@ -177,7 +174,7 @@ let save_notebook cur_guid body =
     (* what if cur_guid != guid ie a rename *)
     Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
 
-let http_server address port =
+let http_server address port ws_port =
     let callback conn_id ?body req =
         let uri = Request.uri req in
         let meth = Request.meth req in
@@ -227,6 +224,7 @@ let http_server address port =
         | `Root_new -> 
             (* create new .ipynb file *)
             lwt name = Files.(list_notebooks notebook_path >>= new_notebook_name) in
+            lwt () = Lwt_io.eprintf "new file name: %s\n" name in
             lwt () = Lwt_io.(with_file ~mode:output (name ^ ".ipynb") 
                 (fun f -> write f (empty_notebook name)))
             in
@@ -274,13 +272,11 @@ let http_server address port =
             (*kernel_response req*)
             (try_lwt
                 lwt notebook_guid = query_param "notebook" in 
-                let kernel = Kernel.get_kernel
-                    ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:ws_addr
-                    ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
-                    ~zmq_heartbeat_port ~zmq_stdin_port 
+                lwt kernel = Kernel.get_kernel
+                    ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
                 in
                 Server.respond_string ~status:`OK
-                    ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~ws_addr ~ws_port) ()
+                    ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~address ~ws_port) ()
             with _ ->
                 not_found ())
 
@@ -296,17 +292,32 @@ let http_server address port =
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
-let browser_command http_addr http_port =
-   ("", [| "xdg-open"; "http://" ^ http_addr ^ ":" ^ string_of_int http_port |]) 
-
 let run_servers () = 
-    let http_server = http_server http_addr http_port in
+    (* find ports for http and websocket servers *)
+    let rec find_port_pair port = 
+        lwt ok = Kernel.n_ports_available address port 2 in
+        if ok then return port
+        else find_port_pair (port+2)
+    in
+    lwt http_port = find_port_pair 8888 in
+    let ws_port = http_port + 1 in
+
+    (* http server *)
+    let http_server = http_server address http_port ws_port in
+    
+    (* websocket server *)
     let _ = 
         Websocket.establish_server 
-            (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string ws_addr, ws_port))
+            (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string address, ws_port))
             Bridge.ws_init
     in
-    let _ = Lwt_process.open_process_none (browser_command http_addr http_port) in
+
+    (* start webbrowser *)
+    let browser_command =
+       ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ string_of_int http_port |]) 
+    in
+    let _ = Lwt_process.open_process_none browser_command in
+
     http_server
 
 let close_kernels () = 
