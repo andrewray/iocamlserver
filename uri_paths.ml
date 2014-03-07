@@ -16,7 +16,7 @@ let d = char '-'
 let hex = alt [digit; (no_case (rg 'a' 'f'))]
 let hex n = repn hex n (Some(n))
 let guid = seq [ hex 8; d; hex 4; d; hex 4; d; hex 4; d; hex 12 ]
-let re_guid = compile guid
+let fname = rep1 (compl [ char '/' ])
 
 let notebooks = str "/notebooks"
 let clusters = str "/clusters"
@@ -78,8 +78,8 @@ let decode_root =
     let re = [
         [s; str "new"; eos], (fun _ -> `Root_new);
         [s; guid; s; str "copy"; eos], (fun r -> `Root_copy(r.(1)));
-        (*[s; group word; eos], (fun r -> `Root_name(r.(1)));*)
         [s; guid; eos], (fun r -> `Root_guid(r.(1)));
+        [s; group fname; eos], (fun r -> `Root_name(r.(1)));
     ] in
     let re = List.map (compile_decode None) re in
     fun path -> execl path re

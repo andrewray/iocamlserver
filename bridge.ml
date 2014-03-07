@@ -50,31 +50,35 @@ let ws_of_zmq_message data =
             "metadata", meta;
         ])
 
-let ws_to_zmq name stream socket = 
+let ws_to_zmq verbose name stream socket = 
     lwt frame = Lwt_stream.next stream in
     let data = Websocket.Frame.content frame in
-    lwt () = Lwt_io.eprintf "%s: %s\n" name data in
+    lwt () = 
+        if verbose > 1 then Lwt_io.eprintf "%s: %s\n" name data 
+        else return ()
+    in
     Lwt_zmq.Socket.send_all socket (zmq_of_ws_message data)
 
-let zmq_to_ws name socket push = 
+let zmq_to_ws verbose name socket push = 
     lwt frames = Lwt_zmq.Socket.recv_all socket in
     lwt () = 
-        Lwt_list.iter_s (Lwt_io.eprintf "%s: %s\n" name) frames 
+        if verbose > 1 then Lwt_list.iter_s (Lwt_io.eprintf "%s: %s\n" name) frames 
+        else return ()
     in
     let frame = ws_of_zmq_message frames in
     Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string frame))) 
 
-let rec ws_zmq_comms name socket uri (stream,push) = 
-    lwt () = Lwt_io.eprintf "ws_zmq_comms: %s\n" name in
-    lwt _ = zmq_to_ws name socket push <?> ws_to_zmq name stream socket in
-    ws_zmq_comms name socket uri (stream,push)
+let rec ws_zmq_comms verbose name socket uri (stream,push) = 
+    (*lwt () = Lwt_io.eprintf "ws_zmq_comms: %s\n" name in*)
+    lwt _ = zmq_to_ws verbose name socket push <?> ws_to_zmq verbose name stream socket in
+    ws_zmq_comms verbose name socket uri (stream,push)
 
-let ws_init uri (stream,push) = 
+let ws_init verbose uri (stream,push) = 
     Lwt_stream.next stream >>= fun frame ->
         let open Kernel in
         (* we get one special message per channel, after which it's comms time *)
-        let cookie = Websocket.Frame.content frame in
-        lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in
+        (*let cookie = Websocket.Frame.content frame in
+        lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in*)
         (* parse the uri to find out which socket we want *)
         let get guid = 
             match M.kernel_of_kernel_guid guid with
@@ -83,11 +87,12 @@ let ws_init uri (stream,push) =
         in
         match_lwt Uri_paths.decode_ws (Uri.path uri) with
         | `Ws_shell(guid) -> 
-            get guid >>= fun k -> ws_zmq_comms "shell" (k.shell()) uri (stream,push)
+            get guid >>= fun k -> ws_zmq_comms verbose "shell" (k.shell()) uri (stream,push)
         | `Ws_stdin(guid) ->                                      
-            get guid >>= fun k -> ws_zmq_comms "stdin" (k.stdin()) uri (stream,push)
+            get guid >>= fun k -> ws_zmq_comms verbose "stdin" (k.stdin()) uri (stream,push)
         | `Ws_iopub(guid) ->                                      
-            get guid >>= fun k -> ws_zmq_comms "iopub" (k.iopub()) uri (stream,push)
-        | `Error_not_found -> Lwt.fail (Failure "invalid websocket url")
+            get guid >>= fun k -> ws_zmq_comms verbose "iopub" (k.iopub()) uri (stream,push)
+        | `Error_not_found -> 
+            Lwt.fail (Failure "invalid websocket url")
 
 

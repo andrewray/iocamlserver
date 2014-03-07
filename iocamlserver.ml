@@ -49,15 +49,29 @@ open Lwt
 open Cohttp
 open Cohttp_lwt_unix
 
-let address = "127.0.0.1"
+let address = ref "127.0.0.1"
+let verbose = ref 0
+let file_or_path = ref ""
 
-let zmq_shell_port = 58891
-let zmq_iopub_port = 58892
-let zmq_control_port = 58893
-let zmq_heartbeat_port = 58894
-let zmq_stdin_port = 58895
+let () = 
+    Arg.(parse (align [
+        "-ip", Set_string(address), "<ip-address> ip address of server";
+        "-v", Unit(fun () -> incr verbose), " increase verbosity";
+    ])
+    (fun s -> file_or_path := s)
+    "iocaml server [options] [file-or-path]")
 
-let notebook_path = Unix.getcwd ()
+let notebook_path, file_to_open = Files.file_or_path !file_or_path 
+
+let filename name = Filename.(concat notebook_path name)
+
+let () = 
+    if !verbose > 0 then begin
+        Printf.printf "ip address: '%s'\n" !address;
+        Printf.printf "notebook_path: '%s'\n" notebook_path;
+        Printf.printf "file_to_open: '%s'\n" file_to_open;
+        flush stdout;
+    end
 
 (* zmq initialization *)
 let zmq = ZMQ.init ()
@@ -108,20 +122,6 @@ let header_of_extension filename =
     else if Filename.check_suffix filename ".woff" then header_font
     else header_none
 
-(* the json that's served for an empty notebook *)
-let empty_notebook title = 
-    let open Yojson.Basic in
-    to_string 
-        (`Assoc [
-            "metadata", `Assoc [ "language", `String "ocaml"; "name", `String title; ];
-            "nbformat", `Int 3; "nbformat_minor", `Int 0;
-            "worksheets", `List [ `Assoc [ "cells", `List []; "metadata", `Assoc []; ]; ];
-        ])
-
-let write_empty_notebook title = 
-    Lwt_io.(with_file ~mode:output (title ^ ".ipynb") 
-                (fun f -> write f (empty_notebook title)))
-
 let kernel_id_json ~kernel_guid ~address ~ws_port = 
     let open Yojson.Basic in
     to_string 
@@ -131,10 +131,10 @@ let kernel_id_json ~kernel_guid ~address ~ws_port =
         ])
 
 let not_found () = 
-    lwt () = Lwt_io.eprintf "Not_found\n" in
+    lwt () = if !verbose > 0 then Lwt_io.eprintf "Not_found\n" else return () in
     Server.respond_not_found ()
  
-let notebook_list () = 
+let notebook_list notebook_path = 
     lwt l = Files.list_notebooks notebook_path in
     let open Yojson.Basic in
     let json nb =
@@ -151,6 +151,11 @@ let notebook_list () =
     let json = `List (List.map json l) in
     Server.respond_string ~status:`OK ~body:(to_string json) ()
 
+let register_notebooks notebook_path = 
+    lwt l = Files.list_notebooks notebook_path in
+    Lwt_list.iter_s 
+        (fun nb -> return (ignore (Kernel.M.notebook_guid_of_filename nb))) l
+
 let find_dict name json = 
     match json with
     | `Assoc(l) -> ((wrap2 List.assoc) name l)
@@ -165,16 +170,16 @@ let get_filename_of_ipynb s =
     Yojson.Basic.from_string s |> find_dict "metadata" >>= find_dict "name" >>= get_string
 
 let save_notebook cur_guid body = 
-    lwt filename = get_filename_of_ipynb body in
-    let guid = Kernel.M.notebook_guid_of_filename filename in
+    lwt filename' = get_filename_of_ipynb body in
+    let guid = Kernel.M.notebook_guid_of_filename filename' in
     lwt () = Lwt_io.(with_file ~mode:output 
-        (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb")
+        (filename (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb"))
         (fun f -> write f body))
     in
     (* what if cur_guid != guid ie a rename *)
     Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
 
-let http_server address port ws_port =
+let http_server address port ws_port notebook_path =
 
     let callback conn_id ?body req =
         let uri = Request.uri req in
@@ -182,11 +187,13 @@ let http_server address port ws_port =
         let path = Uri.path uri in
 
         lwt decode = Uri_paths.decode path in
-        let ()  = 
+        lwt ()  = 
             (* XXX log all messages that are not just serving notebook files *)
-            if decode <> `Static then 
-                Printf.eprintf "%s: %s -> %s\n%!" 
-                    (Connection.to_string conn_id) (Uri.to_string uri) path;
+            if !verbose > 0 && decode <> `Static then 
+                Lwt_io.eprintf "%s: %s -> %s\n%!" 
+                    (Connection.to_string conn_id) (Uri.to_string uri) path
+            else
+                return ()
         in
 
         let query_param var = 
@@ -218,18 +225,25 @@ let http_server address port ws_port =
         | `Root_new -> 
             (* create new .ipynb file *)
             lwt name = Files.(list_notebooks notebook_path >>= new_notebook_name) in
-            lwt () = Lwt_io.eprintf "new file name: %s\n" name in
-            lwt () = Lwt_io.(with_file ~mode:output (name ^ ".ipynb") 
-                (fun f -> write f (empty_notebook name)))
+            lwt () = Lwt_io.(with_file ~mode:output 
+                (filename (name ^ ".ipynb")) 
+                (fun f -> write f (Files.empty_notebook name)))
             in
             let guid = Kernel.M.notebook_guid_of_filename name in
             (* 302 Found, redirect to `Root_guid *)
             Server.respond_string ~status:`Found ~headers:(header_redirect guid) ~body:"" ()
 
-        | `Root_copy(guid) -> not_found ()
-        | `Root_name(guid) -> not_found ()
+        | `Root_name(name) ->
+            (try_lwt 
+                Server.respond_string ~status:`Found 
+                    ~headers:(header_redirect (Kernel.M.notebook_guid_of_filename name)) 
+                    ~body:"" ()
+            with _ ->
+                not_found ())
 
-        | `Notebooks -> notebook_list ()
+        | `Root_copy(guid) -> not_found ()
+
+        | `Notebooks -> notebook_list notebook_path
 
         | `Notebooks_guid(guid) when meth = `GET ->
             (try_lwt
@@ -238,7 +252,9 @@ let http_server address port ws_port =
                     try return (Kernel.M.filename_of_notebook_guid guid) 
                     with _ -> fail (Failure "bad_file") 
                 in 
-                lwt notebook = Lwt_io.(with_file ~mode:input (name ^ ".ipynb") read) in
+                lwt notebook = 
+                    Lwt_io.(with_file ~mode:input (filename (name ^ ".ipynb")) read) 
+                in
                 Server.respond_string ~status:`OK ~body:notebook ()
             with _ -> 
                 not_found ())
@@ -273,7 +289,9 @@ let http_server address port ws_port =
             with _ ->
                 not_found ())
 
-        | `Kernels_guid(_) -> not_found ()
+        | `Kernels_guid(guid) when meth = `DELETE -> 
+            let () = Kernel.close_kernel guid in
+            Server.respond_string ~status:`OK ~body:"" ()
 
         | `Kernels_restart(guid) ->
             (try_lwt
@@ -298,13 +316,13 @@ let http_server address port ws_port =
 
         | `Error_not_found | _ -> not_found ()
     in
-    let conn_closed conn_id () =
-        Printf.eprintf "%s: closed\n%!" (Connection.to_string conn_id)
-    in
+    let conn_closed conn_id () = () in
     let config = { Server.callback; conn_closed } in
     Server.create ~address ~port config
 
-let run_servers () = 
+let run_servers address notebook_path = 
+    lwt () = register_notebooks notebook_path in
+
     (* find ports for http and websocket servers *)
     let rec find_port_pair port = 
         lwt ok = Kernel.n_ports_available address port 2 in
@@ -315,18 +333,26 @@ let run_servers () =
     let ws_port = http_port + 1 in
 
     (* http server *)
-    let http_server = http_server address http_port ws_port in
+    let http_server = http_server address http_port ws_port notebook_path in
     
     (* websocket server *)
     let _ = 
         Websocket.establish_server 
             (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string address, ws_port))
-            Bridge.ws_init
+            (Bridge.ws_init !verbose)
     in
 
-    (* start webbrowser *)
+    (* start webbrowser, what about mac-osx? 'open'? *)
     let browser_command =
-       ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ string_of_int http_port |]) 
+        if file_to_open <> "" then
+            let guid = 
+                Kernel.M.notebook_guid_of_filename 
+                    (Filename.(chop_suffix file_to_open ".ipynb"))
+            in
+            ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ 
+                        string_of_int http_port ^ "/" ^ guid |]) 
+        else
+            ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ string_of_int http_port |]) 
     in
     let _ = Lwt_process.open_process_none browser_command in
 
@@ -335,15 +361,13 @@ let run_servers () =
 let close_kernels () = 
     (* kill all running kernels *)
     Kernel.M.iter_kernels
-        (fun _ v -> 
-            eprintf "killing kernel: %s\n" v.Kernel.guid;
-            v.Kernel.process#terminate) 
+        (fun _ v -> v.Kernel.process#terminate) 
 
 let _ = 
     Sys.catch_break true;
     try 
         (*at_exit close_kernels;*)
-        Lwt_unix.run (run_servers ())
+        Lwt_unix.run (run_servers !address notebook_path)
     with
     | Sys.Break -> begin
         close_kernels ();

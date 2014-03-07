@@ -176,15 +176,24 @@ let start_kernel ~zmq ~path ~notebook_guid ~ip_addr =
     let zmq_stdin_port = p+4 in
 
     (* should be started with command line options *)
-    let conn_file_name = write_connection_file
+    (*let conn_file_name = write_connection_file
         ~path ~kernel_guid ~ip_addr
         ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
         ~zmq_heartbeat_port ~zmq_stdin_port 
-    in
-    let command = ("", [| "iocaml.top"; 
-                            "-connection-file"; conn_file_name;
-                            "-log"; "iocaml.log";
-                      |]) 
+    in*)
+    let command = 
+        ("", Array.of_list 
+        [ 
+            "iocaml.top"; 
+                "-ci-shell"; string_of_int zmq_shell_port;
+                "-ci-iopub"; string_of_int zmq_iopub_port;
+                "-ci-control"; string_of_int zmq_control_port;
+                "-ci-heartbeat"; string_of_int zmq_heartbeat_port;
+                "-ci-stdin"; string_of_int zmq_stdin_port;
+                "-ci-transport"; "tcp";
+                "-ci-ip"; ip_addr;
+                (*"-log"; "iocaml.log";*)
+        ]) 
     in
     let make_socket typ addr port () = 
         let socket = ZMQ.Socket.(create zmq typ) in

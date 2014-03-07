@@ -16,11 +16,11 @@ val zmq_of_ws_message : string -> string list
 
 val ws_of_zmq_message : string list -> string
 
-val ws_to_zmq : string -> ws_stream -> 'a Lwt_zmq.Socket.t -> unit Lwt.t
+val ws_to_zmq : int -> string -> ws_stream -> 'a Lwt_zmq.Socket.t -> unit Lwt.t
 
-val zmq_to_ws : string -> 'a Lwt_zmq.Socket.t -> ws_push -> unit Lwt.t
+val zmq_to_ws : int -> string -> 'a Lwt_zmq.Socket.t -> ws_push -> unit Lwt.t
 
-val ws_zmq_comms : string -> 'a Lwt_zmq.Socket.t -> Uri.t -> ws_comm -> unit Lwt.t
+val ws_zmq_comms : int -> string -> 'a Lwt_zmq.Socket.t -> Uri.t -> ws_comm -> unit Lwt.t
 
-val ws_init : Uri.t -> ws_comm -> unit Lwt.t
+val ws_init : int -> Uri.t -> ws_comm -> unit Lwt.t
 
