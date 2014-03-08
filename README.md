@@ -1,9 +1,9 @@
 # IOCaml Server
 
 [IOCaml](https://github.com/andrewray/iocaml) and [IOCamlJS](https://github.com/andrewray/iocamljs)
-provide 'kernels' for running OCaml a REPL in a browser.
+provide 'kernels' for running an OCaml REPL in a browser.
 
-These kernels communicate using a protocol defined by the [IPython](http://www.ipython.prg) project
+These kernels communicate using a protocol defined by the [IPython](http://www.ipython.org) project
 which also provides a python based webserver. 
 
 This project replaces all the python code with an OCaml webserver based on 
