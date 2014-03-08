@@ -181,7 +181,7 @@ let save_notebook cur_guid body =
 
 let http_server address port ws_port notebook_path =
 
-    let callback conn_id ?body req =
+    let callback conn_id req body =
         let uri = Request.uri req in
         let meth = Request.meth req in
         let path = Uri.path uri in
@@ -190,8 +190,10 @@ let http_server address port ws_port notebook_path =
         lwt ()  = 
             (* XXX log all messages that are not just serving notebook files *)
             if !verbose > 0 && decode <> `Static then 
-                Lwt_io.eprintf "%s: %s -> %s\n%!" 
-                    (Connection.to_string conn_id) (Uri.to_string uri) path
+                Lwt_io.eprintf "%s [%8s]: %s -> %s\n%!" 
+                    (Connection.to_string conn_id) 
+                    (Code.string_of_method meth)
+                    (Uri.to_string uri) path
             else
                 return ()
         in
@@ -261,14 +263,11 @@ let http_server address port ws_port notebook_path =
             
         | `Notebooks_guid(guid) when meth = `PUT -> 
             (* save notebook *)
-            (match body with
-            | None -> not_found ()
-            | Some(x) -> 
-                try_lwt
-                    lwt body = Cohttp_lwt_body.string_of_body body in
-                    save_notebook guid body           
-                with _ ->
-                    not_found ())
+            (try_lwt
+                lwt body = Cohttp_lwt_body.to_string body in
+                save_notebook guid body           
+            with _ -> 
+                not_found ())
 
         | `Notebooks_checkpoint(_) -> 
             Server.respond_string ~status:`OK ~body:"[]" ()
