@@ -10,6 +10,7 @@
 
 type message =
     [ `Static
+    | `File of string
 
     | `Root
     | `Root_guid of string
@@ -37,5 +38,8 @@ type ws_message =
     | `Ws_stdin of string
     | `Error_not_found ]
 
-val decode : string -> message Lwt.t
+val decode : (string*string) list -> string -> message Lwt.t
 val decode_ws : string -> ws_message Lwt.t
+
+val string_of_message : message -> string
+

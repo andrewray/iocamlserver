@@ -53,10 +53,17 @@ let address = ref "127.0.0.1"
 let verbose = ref 0
 let file_or_path = ref ""
 
+let static_file_path = ref ""
+let serve_uri_path = ref []
+let serve_file_path = ref []
+
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
+        "-static", Set_string(static_file_path), "<dir> serve static files from dir";
+        "-serve", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
+                          String(fun s -> serve_file_path := s :: !serve_file_path) ]), "<uri><path> serve files from uri";
     ])
     (fun s -> file_or_path := s)
     "iocaml server [options] [file-or-path]")
@@ -65,11 +72,16 @@ let notebook_path, file_to_open = Files.file_or_path !file_or_path
 
 let filename name = Filename.(concat notebook_path name)
 
+let serve_files = List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path
+
 let () = 
     if !verbose > 0 then begin
         Printf.printf "ip address: '%s'\n" !address;
-        Printf.printf "notebook_path: '%s'\n" notebook_path;
-        Printf.printf "file_to_open: '%s'\n" file_to_open;
+        Printf.printf "notebook path: '%s'\n" notebook_path;
+        Printf.printf "file to open: '%s'\n" file_to_open;
+        Printf.printf "extra static dir: '%s'\n" !static_file_path;
+        List.iter (fun (u,p) ->
+            Printf.printf "serve uri: '%s' -> '%s'\n" u p) serve_files;
         flush stdout;
     end
 
@@ -156,6 +168,28 @@ let register_notebooks notebook_path =
     Lwt_list.iter_s 
         (fun nb -> return (ignore (Kernel.M.notebook_guid_of_filename nb))) l
 
+let serve_crunched_files uri = 
+    (* serve from crunched file system  *)
+    let fname = Server.resolve_file ~docroot:"" ~uri:uri in
+    (match Filesys.read fname with
+    | None -> not_found()
+    | Some(x) -> 
+        Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
+
+let serve_static_files uri = 
+    if !static_file_path <> "" then
+        let fname = Server.resolve_file ~docroot:!static_file_path ~uri:uri in
+        if Sys.file_exists fname then
+            lwt () =
+                if !verbose > 0 then Lwt_io.eprintf "  [  STATIC]: %s\n" fname 
+                else return ()
+            in
+            Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
+        else
+            serve_crunched_files uri
+    else
+        serve_crunched_files uri
+
 let find_dict name json = 
     match json with
     | `Assoc(l) -> ((wrap2 List.assoc) name l)
@@ -180,19 +214,21 @@ let save_notebook cur_guid body =
     Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
 
 let http_server address port ws_port notebook_path =
-
+    let decode = Uri_paths.decode serve_files in
+    
     let callback conn_id req body =
         let uri = Request.uri req in
         let meth = Request.meth req in
         let path = Uri.path uri in
 
-        lwt decode = Uri_paths.decode path in
+        lwt decode = decode path in
         lwt ()  = 
             (* XXX log all messages that are not just serving notebook files *)
-            if !verbose > 0 && decode <> `Static then 
-                Lwt_io.eprintf "%s [%8s]: %s -> %s\n%!" 
-                    (Connection.to_string conn_id) 
+            if (!verbose > 0 && decode <> `Static) || (!verbose > 1) then 
+                Lwt_io.eprintf "%s [%8s]: [%s] %s -> %s\n%!" 
+                    (Connection.to_string conn_id)
                     (Code.string_of_method meth)
+                    (Uri_paths.string_of_message decode) 
                     (Uri.to_string uri) path
             else
                 return ()
@@ -211,12 +247,14 @@ let http_server address port ws_port notebook_path =
             Server.respond_string ~status:`OK ~headers:header_html ~body:dashboard ()
 
         | `Static -> 
-            (* serve from crunched file system  *)
-            let fname = Server.resolve_file ~docroot:"" ~uri:(Request.uri req) in
-            (match Filesys.read fname with
-            | None -> not_found()
-            | Some(x) -> 
-                Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
+            serve_static_files uri
+
+        | `File(fname) ->
+            lwt () = 
+                if !verbose > 0 then Lwt_io.eprintf "  [    DATA] %s\n" fname
+                else return ()
+            in
+            Server.respond_file ~headers:header_none ~fname:fname ()
 
         | `Root_guid(guid) -> 
             let notebook = Pages.generate_notebook_html 
