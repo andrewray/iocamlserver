@@ -120,6 +120,8 @@ let header_date h =
     in
     let h = Header.add h "Date" tm in
     h
+let header_binary = header "application/octet-stream"
+let header_plain_user_charset = header "text/plain; charset=x-user-defined"
 
 let checkpoint_date () = 
     let tm = Unix.(gmtime (gettimeofday ())) in
@@ -254,7 +256,7 @@ let http_server address port ws_port notebook_path =
                 if !verbose > 0 then Lwt_io.eprintf "  [    DATA] %s\n" fname
                 else return ()
             in
-            Server.respond_file ~headers:header_none ~fname:fname ()
+            Server.respond_file ~headers:header_plain_user_charset ~fname:fname ()
 
         | `Root_guid(guid) -> 
             let notebook = Pages.generate_notebook_html 
