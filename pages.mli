@@ -20,7 +20,7 @@ val notebook_header : Cow.Html.t
 
 val notebook_site : Cow.Html.t
 
-val notebook_scripts : (string -> string) -> Cow.Html.t
+val notebook_scripts : (string -> string) -> string -> Cow.Html.t
 
 val dashboard_site : string -> Cow.Html.t
 
@@ -28,7 +28,8 @@ val dashboard_stylesheet : (string -> string) -> Cow.Html.t
 
 val dashboard_scripts : (string -> string) -> Cow.Html.t
 
-val generate_notebook_html : title:string -> path:string -> notebook_guid:string -> string
+val generate_notebook_html : title:string -> path:string -> 
+    notebook_guid:string -> kernel:string -> string
 
 val generate_dashboard_html : path:string -> string
 

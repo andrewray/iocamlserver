@@ -57,13 +57,16 @@ let static_file_path = ref ""
 let serve_uri_path = ref []
 let serve_file_path = ref []
 
+let iocamljs_kernel = ref ""
+
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
-        "-v", Unit(fun () -> incr verbose), " increase verbosity";
+        "-js", Set_string(iocamljs_kernel), "<kernel> use iocamljs kernel";
         "-static", Set_string(static_file_path), "<dir> serve static files from dir";
         "-serve", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
                           String(fun s -> serve_file_path := s :: !serve_file_path) ]), "<uri><path> serve files from uri";
+        "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
     "iocaml server [options] [file-or-path]")
@@ -73,6 +76,26 @@ let notebook_path, file_to_open = Files.file_or_path !file_or_path
 let filename name = Filename.(concat notebook_path name)
 
 let serve_files = List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path
+
+(* process -js option *)
+let () = 
+    if !iocamljs_kernel <> "" then begin
+        let share =
+            try
+                let ic = Unix.open_process_in ("opam config var share 2>/dev/null") in
+                let r = input_line ic in
+                let r =
+                    let len = String.length r in
+                    if len>0 && r.[len - 1] = '\r' then String.sub r 0 (len-1) else r
+                in
+                match Unix.close_process_in ic with
+                | Unix.WEXITED 0 -> r
+                | _ -> failwith ""
+            with
+            | _ -> failwith ("could not query opam for share directory")
+        in
+        static_file_path := share ^ "/iocamljs-kernel/profile"
+    end
 
 let () = 
     if !verbose > 0 then begin
@@ -260,7 +283,8 @@ let http_server address port ws_port notebook_path =
 
         | `Root_guid(guid) -> 
             let notebook = Pages.generate_notebook_html 
-                ~title:"IOCaml-Notebook" ~path:notebook_path ~notebook_guid:guid
+                ~title:"IOCaml-Notebook" ~path:notebook_path 
+                ~notebook_guid:guid ~kernel:!iocamljs_kernel
             in
             Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
 

@@ -321,7 +321,12 @@ let notebook_site =
 <div id='tooltip' class='ipython_tooltip' style='display:none'> </div>
 >>
 
-let notebook_scripts static_url =
+let notebook_scripts static_url kernel =
+    let kernel = static_url 
+        ("services/kernels/js/kernel" ^
+            (if kernel="" then "" else "." ^ kernel) 
+            ^ ".js")
+    in
 <:html<
 <script src=$str:static_url "components/codemirror/lib/codemirror.js"$ charset="utf-8"> </script>
 <script type="text/javascript">
@@ -357,7 +362,7 @@ let notebook_scripts static_url =
 <script src=$str:static_url "notebook/js/codecell.js"$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/completer.js"$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/textcell.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "services/kernels/js/kernel.js"$ type="text/javascript" charset="utf-8"> </script>
+<script src=$str:kernel$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/savewidget.js"$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/quickhelp.js"$ type="text/javascript" charset="utf-8"> </script>
 <script src=$str:static_url "notebook/js/pager.js"$ type="text/javascript" charset="utf-8"> </script>
@@ -452,7 +457,7 @@ let dashboard_scripts static_url =
     <script src=$str:static_url "tree/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
 
-let generate_notebook_html ~title ~path ~notebook_guid = 
+let generate_notebook_html ~title ~path ~notebook_guid ~kernel = 
     
     let static_url x = "/static/" ^ x in
     let mathjax_url = "http://cdn.mathjax.org/mathjax/latest/MathJax.js" in
@@ -464,7 +469,7 @@ let generate_notebook_html ~title ~path ~notebook_guid =
     let style = notebook_stylesheet mathjax_url static_url in
     let header = notebook_header in
     let site = notebook_site in
-    let script = notebook_scripts static_url in
+    let script = notebook_scripts static_url kernel in
 
     let page = page 
         title base_project_url static_url
