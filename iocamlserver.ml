@@ -69,7 +69,7 @@ let () =
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
-    "iocaml server [options] [file-or-path]")
+    "iocaml [options] [file-or-path]")
 
 let notebook_path, file_to_open = Files.file_or_path !file_or_path 
 
@@ -77,7 +77,7 @@ let filename name = Filename.(concat notebook_path name)
 
 let serve_files = List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path
 
-(* process -js option *)
+(* process -js option and set up static file path *)
 let () = 
     if !iocamljs_kernel <> "" then begin
         let share =
@@ -228,15 +228,20 @@ let get_string = function
 let get_filename_of_ipynb s = 
     Yojson.Basic.from_string s |> find_dict "metadata" >>= find_dict "name" >>= get_string
 
-let save_notebook cur_guid body = 
-    lwt filename' = get_filename_of_ipynb body in
-    let guid = Kernel.M.notebook_guid_of_filename filename' in
+let save_notebook guid body = 
+    let old_filename = Kernel.M.filename_of_notebook_guid guid in
+    lwt new_filename = get_filename_of_ipynb body in
     lwt () = Lwt_io.(with_file ~mode:output 
-        (filename (Kernel.M.filename_of_notebook_guid guid ^ ".ipynb"))
+        (filename (new_filename ^ ".ipynb"))
         (fun f -> write f body))
     in
-    (* what if cur_guid != guid ie a rename *)
+    let () = 
+        if new_filename <> old_filename then
+            Kernel.M.change_filename old_filename new_filename guid
+    in
+    Kernel.M.dump_state !verbose;
     Server.respond_string ~status:`OK ~headers:(header_date header_html) ~body:"" ()
+
 
 let http_server address port ws_port notebook_path =
     let decode = Uri_paths.decode serve_files in
@@ -286,6 +291,7 @@ let http_server address port ws_port notebook_path =
                 ~title:"IOCaml-Notebook" ~path:notebook_path 
                 ~notebook_guid:guid ~kernel:!iocamljs_kernel
             in
+            Kernel.M.dump_state !verbose;
             Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
 
         | `Root_new -> 
@@ -321,6 +327,7 @@ let http_server address port ws_port notebook_path =
                 lwt notebook = 
                     Lwt_io.(with_file ~mode:input (filename (name ^ ".ipynb")) read) 
                 in
+                Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK ~body:notebook ()
             with _ -> 
                 not_found ())
@@ -329,6 +336,7 @@ let http_server address port ws_port notebook_path =
             (* save notebook *)
             (try_lwt
                 lwt body = Cohttp_lwt_body.to_string body in
+                Kernel.M.dump_state !verbose;
                 save_notebook guid body           
             with _ -> 
                 not_found ())
@@ -347,6 +355,7 @@ let http_server address port ws_port notebook_path =
                 lwt kernel = Kernel.get_kernel
                     ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
                 in
+                Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK
                     ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~address ~ws_port) ()
             with _ ->
@@ -354,6 +363,7 @@ let http_server address port ws_port notebook_path =
 
         | `Kernels_guid(guid) when meth = `DELETE -> 
             let () = Kernel.close_kernel guid in
+            Kernel.M.dump_state !verbose;
             Server.respond_string ~status:`OK ~body:"" ()
 
         | `Kernels_restart(guid) ->
@@ -365,6 +375,7 @@ let http_server address port ws_port notebook_path =
                 lwt kernel = Kernel.get_kernel
                     ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
                 in
+                Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK
                     ~body:(kernel_id_json ~kernel_guid:kernel.Kernel.guid ~address ~ws_port) ()
             with _ ->
@@ -374,6 +385,7 @@ let http_server address port ws_port notebook_path =
             (match Kernel.M.kernel_of_kernel_guid guid with
             | Some(kernel) ->
                 kernel.Kernel.process#kill Sys.sigint; (* interrupt *)
+                Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK ~body:"" ()
             | None -> not_found ())
 

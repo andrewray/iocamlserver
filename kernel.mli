@@ -26,23 +26,21 @@ module M : sig
 
     val notebook_guid_of_filename : string -> string
     val notebook_guid_of_kernel_guid : string -> string
-    val notebook_guid_of_kernel : kernel -> string
 
-    val kernel_guid_of_filename : string -> string
     val kernel_guid_of_notebook_guid : string -> string
     val kernel_guid_of_kernel : kernel -> string
 
-    val kernel_of_filename : string -> kernel option
     val kernel_of_notebook_guid : string -> kernel option
     val kernel_of_kernel_guid : string -> kernel option
 
     val filename_of_notebook_guid : string -> string
-    val filename_of_kernel_guid : string -> string
-    val filename_of_kernel : kernel -> string
-
+    val change_filename : string -> string -> string -> unit
+        
     val add_kernel : string -> kernel -> unit
     val delete_kernel : string -> unit
     val iter_kernels : (string -> kernel -> unit) -> unit
+
+    val dump_state : int -> unit
 
 end
 

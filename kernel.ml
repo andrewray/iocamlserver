@@ -22,85 +22,103 @@ type kernel =
 
 module M = struct
 
-    (* there are 4 data elements to map between,
+    (* map between 
 
         1. filename
         2. notebook_guid
         3. kernel_guid
         4. kernel 
 
-        filenames are either got from File.list_notebook, which are initiated 
-        from the dashboard, or by a new notebook request, copy etc.
-
-        notebook_guids are derived from filenames.
-        kernel_guids are derived from notebook_guids.
-
-        kernels are created and put in a map keyed by kernel_guids when the kernel
-        is created.  they may also be destoyed, or restarted.
-
-        The forward mapping filename->notebook_guid->kernel_guid->kernel is
-        straightforward.
-
-        The inverse mapping uses a map from kernel_guids to filenames.
-
+       There are some issues around renaming notebooks and tracking
+       which filename, notebook guid and kernel.
     *)
 
-    module KMap = Map.Make(String)
+    module M = Map.Make(String)
 
-    let (@@) f g x = g (f x)
+    (* maintain map of kernel_guids to kernels *)
+    let kernels : kernel M.t ref = ref M.empty
 
-    (* guid generation seed *)
+    let kernel_of_kernel_guid kernel_guid = 
+        try Some(M.find kernel_guid !kernels)
+        with _ -> None
+
+    let add_kernel kernel_guid kernel = kernels := M.add kernel_guid kernel !kernels
+    let delete_kernel kernel_guid = kernels := M.remove kernel_guid !kernels
+    let iter_kernels f = M.iter f !kernels
+
+    (*  *)
     let seed = 
         match Uuidm.of_string "65506491-a9a4-439f-be2d-03be8732c88e" with
         | None -> failwith "couldn't init seed"
         | Some(x) -> x
 
-    (* kernel_guid -> kernel map *)
-    let kernels : kernel KMap.t ref = ref KMap.empty
-    (* kernel_guid -> filename map *)
-    let filenames : string KMap.t ref = ref KMap.empty
+    type str_map = 
+        {
+            find : string -> string;
+            add : string -> string -> unit;
+            remove : string -> unit;
+            iter : (string -> string -> unit) -> unit
+        }
 
-    (* forward accessor functions *)
+    let make_str_map () = 
+        let map : string M.t ref = ref M.empty in
+        let find k = M.find k !map in
+        let add k d = map := M.add k d !map in
+        let remove k = map := M.remove k !map in
+        let iter f = M.iter f !map in
+        { find; add; remove; iter }
 
-    let rec notebook_guid_of_filename filename =
-        (* everytime we ask for a notebook guid, add the reverse mapping *)
-        let guid = Uuidm.(to_string (v3 seed filename)) in
-        filenames := KMap.add (kernel_guid_of_notebook_guid guid) filename !filenames; 
-        guid
-    
-    and kernel_guid_of_notebook_guid notebook_guid = 
-        Uuidm.(to_string (v3 seed notebook_guid))
- 
-    let kernel_guid_of_filename = 
-        notebook_guid_of_filename @@ kernel_guid_of_notebook_guid
+    type str_map_r = { f : str_map; b : str_map; }
 
-    let kernel_of_kernel_guid kernel_guid = 
-        try Some(KMap.find kernel_guid !kernels)
-        with _ -> None
-    
-    let kernel_of_notebook_guid = kernel_guid_of_notebook_guid @@ kernel_of_kernel_guid
+    let make_str_map_r () = 
+        let f, b = make_str_map (), make_str_map () in
+        let mk f b = 
+            {
+                find = f.find;
+                add = (fun k d -> f.add k d; b.add d k);
+                remove = (fun k -> b.remove (f.find k); f.remove k);
+                iter = f.iter;
+            }
+        in
+        { f = mk f b; b = mk b f; }
 
-    let kernel_of_filename = notebook_guid_of_filename @@ kernel_of_notebook_guid
+    let f_ng = make_str_map_r () (* filename <-> notebook_guid *)
 
-    (* reverse accessor functions *)
+    let notebook_guid_of_filename filename = 
+        try f_ng.f.find filename
+        with _ ->
+            f_ng.f.add filename Uuidm.(to_string (create `V4));
+            f_ng.f.find filename
 
-    let filename_of_kernel_guid kernel_guid = 
-        (* dont expect this to fail, but it could *)
-        try KMap.find kernel_guid !filenames
-        with _ -> failwith "could not map kernel_guid to filename"
+    let filename_of_notebook_guid notebook_guid = f_ng.b.find notebook_guid
 
-    let notebook_guid_of_kernel_guid = filename_of_kernel_guid @@ notebook_guid_of_filename
-    let filename_of_notebook_guid = kernel_guid_of_notebook_guid @@ filename_of_kernel_guid
+    let change_filename old_filename new_filename notebook_guid = 
+        f_ng.f.remove old_filename;
+        f_ng.f.add new_filename notebook_guid
+
+    let ng_kg = make_str_map_r ()
+
+    let kernel_guid_of_notebook_guid notebook_guid = 
+        try ng_kg.f.find notebook_guid
+        with _ ->
+            ng_kg.f.add notebook_guid Uuidm.(to_string (v3 seed notebook_guid));
+            ng_kg.f.find notebook_guid
+
+    let notebook_guid_of_kernel_guid kernel_guid = ng_kg.b.find kernel_guid
 
     let kernel_guid_of_kernel kernel = kernel.guid
-    let notebook_guid_of_kernel = kernel_guid_of_kernel @@ notebook_guid_of_kernel_guid
-    let filename_of_kernel = kernel_guid_of_kernel @@ filename_of_kernel_guid
 
-    (* add/delete active kernels from the map *)
+    let kernel_of_notebook_guid notebook_guid = 
+        kernel_of_kernel_guid (kernel_guid_of_notebook_guid notebook_guid)
 
-    let add_kernel kernel_guid kernel = kernels := KMap.add kernel_guid kernel !kernels
-    let delete_kernel kernel_guid = kernels := KMap.remove kernel_guid !kernels
-    let iter_kernels f = KMap.iter f !kernels
+    let dump_state verbose = 
+        if verbose > 1 then begin
+            Printf.printf "%36s -> %36s -> %36s\n" "filename" "notebook_guid" "filename";
+            f_ng.f.iter (fun k v -> Printf.printf "%36s -> %36s -> %36s\n" k v (f_ng.b.find v));
+            Printf.printf "%36s -> %36s -> %36s\n" "notebook_guid" "kernel_guid" "notebook_guid";
+            ng_kg.f.iter (fun k v -> Printf.printf "%36s -> %36s -> %36s\n" k v (ng_kg.b.find v));
+            flush stdout
+        end
 
 end
 
