@@ -182,7 +182,9 @@ let write_connection_file
     close_out f;
     fname
 
-let start_kernel ~zmq ~path ~notebook_guid ~ip_addr =
+let start_kernel 
+    ~zmq ~path ~notebook_guid ~ip_addr 
+    ~log_file ~init_file =
     let kernel_guid = M.kernel_guid_of_notebook_guid notebook_guid in
     
     (* find free ports *)
@@ -193,15 +195,9 @@ let start_kernel ~zmq ~path ~notebook_guid ~ip_addr =
     let zmq_heartbeat_port = p+3 in
     let zmq_stdin_port = p+4 in
 
-    (* should be started with command line options *)
-    (*let conn_file_name = write_connection_file
-        ~path ~kernel_guid ~ip_addr
-        ~zmq_shell_port ~zmq_iopub_port ~zmq_control_port
-        ~zmq_heartbeat_port ~zmq_stdin_port 
-    in*)
     let command = 
         ("", Array.of_list 
-        [ 
+        ([ 
             "iocaml.top"; 
                 "-ci-shell"; string_of_int zmq_shell_port;
                 "-ci-iopub"; string_of_int zmq_iopub_port;
@@ -210,8 +206,9 @@ let start_kernel ~zmq ~path ~notebook_guid ~ip_addr =
                 "-ci-stdin"; string_of_int zmq_stdin_port;
                 "-ci-transport"; "tcp";
                 "-ci-ip"; ip_addr;
-                (*"-log"; "iocaml.log";*)
-        ]) 
+        ] 
+        @ (if log_file = "" then [] else [ "-log"; log_file ])
+        @ (if init_file = "" then [] else [ "-init"; init_file ]))) 
     in
     let make_socket typ addr port () = 
         let socket = ZMQ.Socket.(create zmq typ) in
@@ -256,11 +253,12 @@ let start_kernel ~zmq ~path ~notebook_guid ~ip_addr =
     M.add_kernel kernel_guid kernel;
     Lwt.return kernel
     
-let get_kernel ~zmq ~path ~notebook_guid ~ip_addr =
+let get_kernel ~zmq ~path ~notebook_guid ~ip_addr 
+    ~log_file ~init_file =
     match M.kernel_of_notebook_guid notebook_guid with
     | Some(k) -> Lwt.return k
     | None -> 
-        start_kernel ~zmq ~path ~notebook_guid ~ip_addr
+        start_kernel ~zmq ~path ~notebook_guid ~ip_addr ~log_file ~init_file
 
 let close_kernel guid =
     match M.kernel_of_kernel_guid guid with
