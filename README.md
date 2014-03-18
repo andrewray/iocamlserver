@@ -1,30 +1,61 @@
 # IOCaml Server
 
-[IOCaml](https://github.com/andrewray/iocaml) and [IOCamlJS](https://github.com/andrewray/iocamljs)
-provide 'kernels' for running an OCaml REPL in a browser.
+IOCaml is an OCaml kernel for the 
+[IPython notebook](http://ipython.org/notebook.html). 
+This provides a REPL within a web browser with a nice user interface 
+including markdown based comments/documentation, mathjax formula and 
+the possibility of generating all manner of HTML based output media 
+from your code.  
 
-These kernels communicate using a protocol defined by the [IPython](http://www.ipython.org) project
-which also provides a python based webserver. 
+See also
+
+* [IOCaml-kernel](https://github.com/andrewray/iocaml)
+* [IOCamlJS-kernel](https://github.com/andrewray/iocamljs)
+* [IOCaml-server](https://github.com/andrewray/iocamlserver)
+
+This repository hosts the iocaml-server package.
 
 This project replaces all the python code with an OCaml webserver based on 
 [cohttp](https://github.com/avsm/ocaml-cohttp).
 
-# Status
+# Usage
 
-The code implements most features needed for IOCaml.  The notebook and dashboard 
-interfaces can be served locally by the webserver.  Features include;
+```
+$ iocaml [options] [path or file]
+```
 
-* saving of notebooks (but not checkpointing)
-* interrupt+restart of kernels
-* multiple notebooks attached to one kernel - this mainly addresses browser refreshes
-* browser files are built into the executable
+If started with a path then the dashboard interface will be started
+which lists notebooks in the given directory.
 
-There are some oddities around notebook renaming which need to be addressed.
+If a ```.ipynb``` file is given then the notebook will be loaded.
 
-# Architecture
+By default [iocaml-kernel](https://github.com/andrewray/iocaml) 
+is run.  To run a javascript kernel use
 
-A http webserver based on cohttp initially provides the dashboard interface.  Upon 
-opening of a notebook an IOCaml kernel is started.  The browser is attached to the 
-server via 'websockets' and the server is attached to the kernel via 'zmq' sockets.
-IOCaml-server bridges the communications between the browser and kernel.
+```
+$ iocaml -js <kernel> [...]
+```
+
+where ```<kernel>``` may currently be either 
+
+* ```min``` just the ocaml toplevel
+* ```full``` includes camlp4, lwt, js_of_ocaml and their syntax extentions
+
+It is very useful with the javascript kernels to also serve some part of the
+file system.  For example
+
+```
+$ iocaml -js min -serve /home/andyman/.opam /home/andyman/.opam
+```
+
+This would allow files from the ```.opam``` directory to be read from the
+toplevel which in turn will enable dynamic loading of libraries.
+
+Multiple ```-serve``` options can be specified.  The first argument
+is the uri at which files are available and the second the file system
+directory.
+
+The js_of_ocaml psuedo file system has been setup so you can use the
+standard file IO facilities to access served files (read only at the
+moment, write support is a future possibliity).
 
