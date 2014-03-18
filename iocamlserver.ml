@@ -59,9 +59,6 @@ let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
 
-let log_file = ref ""
-let init_file = ref ""
-
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
@@ -69,8 +66,10 @@ let () =
         "-static", Set_string(static_file_path), "<dir> serve static files from dir";
         "-serve", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
                           String(fun s -> serve_file_path := s :: !serve_file_path) ]), "<uri><path> serve files from uri";
-        "-log", Set_string(log_file), "<file> kernel log file";
-        "-init", Set_string(init_file), "<file> kernel init file";
+        "-log", Set_string(Kernel.(kernel_args.log_file)), "<file> kernel log file";
+        "-init", Set_string(Kernel.(kernel_args.init_file)), "<file> kernel init file";
+        "-completion", Set(Kernel.(kernel_args.completion)), " enable tab completion";
+        "-object-info", Set(Kernel.(kernel_args.object_info)), " enable introspection";
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
@@ -375,7 +374,6 @@ let http_server address port ws_port notebook_path =
                 lwt notebook_guid = query_param "notebook" in 
                 lwt kernel = Kernel.get_kernel
                     ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
-                    ~log_file:!log_file ~init_file:!init_file
                 in
                 Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK
@@ -396,7 +394,6 @@ let http_server address port ws_port notebook_path =
                 let notebook_guid = Kernel.M.notebook_guid_of_kernel_guid guid in
                 lwt kernel = Kernel.get_kernel
                     ~zmq ~path:notebook_path ~notebook_guid ~ip_addr:address
-                    ~log_file:!log_file ~init_file:!init_file
                 in
                 Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK

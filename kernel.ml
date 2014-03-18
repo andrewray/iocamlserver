@@ -8,6 +8,22 @@
  *
  *)
 
+type kernel_args = 
+    {
+        log_file : string ref;
+        init_file : string ref;
+        completion : bool ref;
+        object_info : bool ref;
+    }
+
+let kernel_args = 
+    {
+        log_file = ref "";
+        init_file = ref "";
+        completion = ref false;
+        object_info = ref false;
+    }
+
 type kernel =
     {
         process : Lwt_process.process_none;
@@ -183,8 +199,7 @@ let write_connection_file
     fname
 
 let start_kernel 
-    ~zmq ~path ~notebook_guid ~ip_addr 
-    ~log_file ~init_file =
+    ~zmq ~path ~notebook_guid ~ip_addr = 
     let kernel_guid = M.kernel_guid_of_notebook_guid notebook_guid in
     
     (* find free ports *)
@@ -207,8 +222,11 @@ let start_kernel
                 "-ci-transport"; "tcp";
                 "-ci-ip"; ip_addr;
         ] 
-        @ (if log_file = "" then [] else [ "-log"; log_file ])
-        @ (if init_file = "" then [] else [ "-init"; init_file ]))) 
+        @ (if !(kernel_args.log_file) = "" then [] else [ "-log"; !(kernel_args.log_file) ])
+        @ (if !(kernel_args.init_file) = "" then [] else [ "-init"; !(kernel_args.init_file) ])
+        @ (if !(kernel_args.object_info) then [ "-object-info" ] else [])
+        @ (if !(kernel_args.completion) then [ "-completion" ] else [])
+        )) 
     in
     let make_socket typ addr port () = 
         let socket = ZMQ.Socket.(create zmq typ) in
@@ -253,12 +271,11 @@ let start_kernel
     M.add_kernel kernel_guid kernel;
     Lwt.return kernel
     
-let get_kernel ~zmq ~path ~notebook_guid ~ip_addr 
-    ~log_file ~init_file =
+let get_kernel ~zmq ~path ~notebook_guid ~ip_addr =
     match M.kernel_of_notebook_guid notebook_guid with
     | Some(k) -> Lwt.return k
     | None -> 
-        start_kernel ~zmq ~path ~notebook_guid ~ip_addr ~log_file ~init_file
+        start_kernel ~zmq ~path ~notebook_guid ~ip_addr 
 
 let close_kernel guid =
     match M.kernel_of_kernel_guid guid with

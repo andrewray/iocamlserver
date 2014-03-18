@@ -8,6 +8,16 @@
  *
  *)
 
+type kernel_args = 
+    {
+        log_file : string ref;
+        init_file : string ref;
+        completion : bool ref;
+        object_info : bool ref;
+    }
+
+val kernel_args : kernel_args
+
 type kernel =
     {
         process : Lwt_process.process_none;
@@ -54,12 +64,10 @@ val write_connection_file :
 
 val start_kernel :
     zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string ->
-    log_file:string -> init_file:string -> 
     kernel Lwt.t
 
 val get_kernel :
     zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string -> 
-    log_file:string -> init_file:string -> 
     kernel Lwt.t
 
 val close_kernel : string -> unit
