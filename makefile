@@ -14,6 +14,9 @@ iocamlserver.byte: filesys.ml
 iocamlserver.native: filesys.ml
 	ocamlbuild -use-ocamlfind iocamlserver.native
 
+install:
+	cp iocamlserver.byte `opam config var bin`/iocaml
+
 clean:
 	ocamlbuild -clean
 	- rm *~

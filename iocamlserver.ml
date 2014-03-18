@@ -166,7 +166,7 @@ let header_of_extension filename =
 
 let kernel_id_json ~kernel_guid ~address ~ws_port = 
     let open Yojson.Basic in
-    to_string 
+    to_string ~std:true
         (`Assoc [
             "kernel_id", `String kernel_guid;
             "ws_url", `String ("ws://" ^ address ^ ":" ^ string_of_int ws_port);
@@ -191,7 +191,22 @@ let notebook_list notebook_path =
        ]
     in
     let json = `List (List.map json l) in
-    Server.respond_string ~status:`OK ~body:(to_string json) ()
+    Server.respond_string ~status:`OK ~body:(to_string ~std:true json) ()
+
+(* read notebook from file *)
+let send_notebook guid = 
+    (try_lwt
+        lwt name = 
+            try return (Kernel.M.filename_of_notebook_guid guid) 
+            with _ -> fail (Failure "bad_file") 
+        in 
+        lwt notebook = 
+            Lwt_io.(with_file ~mode:input (filename (name ^ ".ipynb")) read) 
+        in
+        Kernel.M.dump_state !verbose;
+        Server.respond_string ~status:`OK ~body:notebook ()
+    with _ -> 
+        not_found ())
 
 let register_notebooks notebook_path = 
     lwt l = Files.list_notebooks notebook_path in
@@ -220,6 +235,7 @@ let serve_static_files uri =
     else
         serve_crunched_files uri
 
+(*
 let find_dict name json = 
     match json with
     | `Assoc(l) -> ((wrap2 List.assoc) name l)
@@ -232,10 +248,12 @@ let get_string = function
 (* extract filename from metadata *)
 let get_filename_of_ipynb s = 
     Yojson.Basic.from_string s |> find_dict "metadata" >>= find_dict "name" >>= get_string
+*)
 
 let save_notebook guid body = 
     let old_filename = Kernel.M.filename_of_notebook_guid guid in
-    lwt new_filename = get_filename_of_ipynb body in
+    (*lwt new_filename = get_filename_of_ipynb body in*)
+    let new_filename, body = Files.prepare_ipynb_for_saving body in
     lwt () = Lwt_io.(with_file ~mode:output 
         (filename (new_filename ^ ".ipynb"))
         (fun f -> write f body))
@@ -329,9 +347,7 @@ let http_server address port ws_port notebook_path =
                     try return (Kernel.M.filename_of_notebook_guid guid) 
                     with _ -> fail (Failure "bad_file") 
                 in 
-                lwt notebook = 
-                    Lwt_io.(with_file ~mode:input (filename (name ^ ".ipynb")) read) 
-                in
+                lwt notebook = Files.load_ipynb_for_serving filename name in
                 Kernel.M.dump_state !verbose;
                 Server.respond_string ~status:`OK ~body:notebook ()
             with _ -> 
