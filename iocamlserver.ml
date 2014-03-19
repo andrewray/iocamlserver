@@ -59,6 +59,8 @@ let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
 
+let browser = ref "xdg-open"
+
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
@@ -70,6 +72,7 @@ let () =
         "-init", Set_string(Kernel.(kernel_args.init_file)), "<file> kernel init file";
         "-completion", Set(Kernel.(kernel_args.completion)), " enable tab completion";
         "-object-info", Set(Kernel.(kernel_args.object_info)), " enable introspection";
+        "-browser", Set_string(browser), "<exe> browser command [xdg-open]";
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
@@ -444,10 +447,10 @@ let run_servers address notebook_path =
                 Kernel.M.notebook_guid_of_filename 
                     (Filename.(chop_suffix file_to_open ".ipynb"))
             in
-            ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ 
+            ("", [| !browser; "http://" ^ address ^ ":" ^ 
                         string_of_int http_port ^ "/" ^ guid |]) 
         else
-            ("", [| "xdg-open"; "http://" ^ address ^ ":" ^ string_of_int http_port |]) 
+            ("", [| !browser; "http://" ^ address ^ ":" ^ string_of_int http_port |]) 
     in
     let _ = Lwt_process.open_process_none browser_command in
 
