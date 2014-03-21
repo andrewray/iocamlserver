@@ -59,7 +59,7 @@ let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
 
-let browser = ref "xdg-open"
+let browser = ref Config.default_browser_command
 
 let () = 
     Arg.(parse (align [
