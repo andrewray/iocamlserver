@@ -436,14 +436,13 @@ let run_servers address notebook_path =
 
     (* http server *)
     let http_server = http_server address http_port ws_port notebook_path in
-    
-    (* websocket server *)
-    let _ = 
-        Websocket.establish_server 
-            (Lwt_unix.ADDR_INET(Unix.inet_addr_of_string address, ws_port))
-            (Bridge.ws_init !verbose)
-    in
 
+    (* websocket server *)
+    let _ =
+        let addr = Kernel.resolve_addr address ws_port in
+        Websocket.establish_server addr (Bridge.ws_init !verbose)
+    in
+    
     (* start webbrowser, what about mac-osx? 'open'? *)
     let browser_command =
         if file_to_open <> "" then

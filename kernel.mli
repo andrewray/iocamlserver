@@ -54,6 +54,10 @@ module M : sig
 
 end
 
+(** [resolve_addr host port] will resolve [host] and [port] into
+    a Unix address info structure suitable for use with sockets. *)
+val resolve_addr : string -> int -> Unix.sockaddr
+
 val port_available : string -> int -> bool Lwt.t
 val n_ports_available : string -> int -> int -> bool Lwt.t
 

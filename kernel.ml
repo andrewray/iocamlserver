@@ -138,13 +138,20 @@ module M = struct
 
 end
 
+let resolve_addr addr port =
+    match Unix.(getaddrinfo addr (string_of_int port) [AI_SOCKTYPE SOCK_STREAM]) with
+    | {Unix.ai_addr} :: _ -> ai_addr
+    | [] ->
+      Printf.eprintf "Unable to resolve '%s' to bind to\n%!" addr;
+      exit 1
+
 (* check if the given port is free 
  * XXX not sure about this *)
 let port_available addr port = 
     let s = Lwt_unix.(socket PF_INET SOCK_STREAM 0) in
     lwt status = 
         try_lwt
-            Lwt_unix.(bind s (ADDR_INET(Unix.inet_addr_of_string addr, port)));
+            Lwt_unix.(bind s (resolve_addr addr port));
             Lwt.return true
         with _ ->
             Lwt.return false
