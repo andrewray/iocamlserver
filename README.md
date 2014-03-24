@@ -13,9 +13,9 @@ See also
 * [IOCamlJS-kernel](https://github.com/andrewray/iocamljs)
 * [IOCaml-server](https://github.com/andrewray/iocamlserver)
 
-This repository hosts the iocaml-server package.
+This repository hosts the `iocaml-server` package.
 
-This project replaces all the python code with an OCaml webserver based on 
+This project replaces all the Python code with an OCaml webserver based on 
 [cohttp](https://github.com/avsm/ocaml-cohttp).
 
 # Usage
@@ -27,35 +27,34 @@ $ iocaml [options] [path or file]
 If started with a path then the dashboard interface will be started
 which lists notebooks in the given directory.
 
-If a ```.ipynb``` file is given then the notebook will be loaded.
+If a `.ipynb` file is given then the notebook will be loaded.
 
 By default [iocaml-kernel](https://github.com/andrewray/iocaml) 
-is run.  To run a javascript kernel use
+is run.  To run a JavaScript kernel use:
 
 ```
 $ iocaml -js <kernel> [...]
 ```
 
-where ```<kernel>``` may currently be either 
+where `<kernel>` may currently be either:
 
-* ```min``` just the ocaml toplevel
-* ```full``` includes camlp4, lwt, js_of_ocaml and their syntax extentions
+* `min` just the ocaml toplevel
+* `full` includes camlp4, lwt, js_of_ocaml and their syntax extentions
 
-It is very useful with the javascript kernels to also serve some part of the
-file system.  For example
+It is very useful with the JavaScript kernels to also serve some part of the
+filesystem.  For example:
 
 ```
 $ iocaml -js min -serve /home/andyman/.opam /home/andyman/.opam
 ```
 
-This would allow files from the ```.opam``` directory to be read from the
+This would allow files from the `.opam` directory to be read from the
 toplevel which in turn will enable dynamic loading of libraries.
 
-Multiple ```-serve``` options can be specified.  The first argument
+Multiple `-serve` options can be specified.  The first argument
 is the uri at which files are available and the second the file system
 directory.
 
-The js_of_ocaml psuedo file system has been setup so you can use the
-standard file IO facilities to access served files (read only at the
-moment, write support is a future possibliity).
-
+The `js_of_ocaml` psuedo file system has been setup so you can use the standard
+file I/O facilities to access served files (read only at the moment, write
+support is a future possibliity).
