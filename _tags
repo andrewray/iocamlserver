@@ -6,4 +6,4 @@
 <iocamlserver.ml>: syntax(camlp4o), package(cow,lwt.syntax,cohttp.lwt,websocket,lwt-zmq,uuidm,yojson)
 
 <iocamlserver.{byte,native}> : package(cow,lwt.unix,cohttp,websocket,lwt-zmq,uuidm,yojson)
-
+true: annot, bin_annot, debug, principal, strict_sequence
