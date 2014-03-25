@@ -70,7 +70,6 @@ let rec execl s = function
             | Some(x) -> return x
             | None -> execl s tl
 
-
 let compile_decode p (re,fn) = 
     match p with 
     | None -> compile (seq re), fn
@@ -122,7 +121,10 @@ let decode_ws =
 let decode_file data = 
     let re = List.map (fun (u,p) -> 
         [s; str u; s; group (rep any); eos], 
-        (fun r -> `File(Filename.concat p r.(1)))) data 
+        (fun r -> 
+          let f = Filename.concat p r.(1) in
+          if Sys.file_exists f then `File(f)
+          else raise Not_found)) data 
     in
     let re = List.map (compile_decode (Some file)) re in
     fun path -> execl path re

@@ -58,16 +58,51 @@ let serve_uri_path = ref []
 let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
-
 let browser = ref Config.default_browser_command
+
+let () = Findlib.init () 
+let configure_js_serve () = 
+  let stdlib = Findlib.ocaml_stdlib () in
+  let findlib = Findlib.default_location () in
+  let jsbase = "/home/andyman/.opam/4.01.0-test/lib" in
+  if Config.static_js then begin
+    (* a bit of a bodge.  we set up mappings for my compiler/findlib path 
+     * to the users compiler/findlib path, and *also* for the users findlib
+     * paths *)
+    serve_uri_path :=
+      (Filename.concat jsbase "ocaml") :: jsbase ::
+      stdlib :: findlib ::
+      !serve_uri_path;
+    serve_file_path := 
+      stdlib :: findlib ::
+      stdlib :: findlib ::
+      !serve_file_path
+  end else begin
+    (* as it should be - mapping for compiler and findlib *)
+    serve_uri_path :=
+      stdlib ::
+      findlib ::
+      !serve_uri_path;
+    serve_file_path := 
+      stdlib ::
+      findlib ::
+      !serve_file_path
+  end
+
 
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
         "-js", Set_string(iocamljs_kernel), "<kernel> use iocamljs kernel";
         "-static", Set_string(static_file_path), "<dir> serve static files from dir";
-        "-serve", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
-                          String(fun s -> serve_file_path := s :: !serve_file_path) ]), "<uri><path> serve files from uri";
+        "-serve", String(fun s -> serve_uri_path := s :: !serve_uri_path;
+                                 serve_file_path := s :: !serve_file_path),
+                             "<uri+path> serve files from same path and uri";
+        "-serve-as", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
+                             String(fun s -> serve_file_path := s :: !serve_file_path) ]), 
+                             " <uri> <path> serve files from path on uri";
+        "-serve-jslibs", Unit(configure_js_serve),
+                             " configure paths to serve libraries for js kernel";
         "-log", Set_string(Kernel.(kernel_args.log_file)), "<file> kernel log file";
         "-init", Set_string(Kernel.(kernel_args.init_file)), "<file> kernel init file";
         "-completion", Set(Kernel.(kernel_args.completion)), " enable tab completion";
@@ -82,7 +117,7 @@ let notebook_path, file_to_open = Files.file_or_path !file_or_path
 
 let filename name = Filename.(concat notebook_path name)
 
-let serve_files = List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path
+let serve_files = List.rev (List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path)
 
 (* process -js option and set up static file path *)
 let () = 
