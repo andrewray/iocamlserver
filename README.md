@@ -45,15 +45,18 @@ It is very useful with the JavaScript kernels to also serve some part of the
 filesystem.  For example:
 
 ```
-$ iocaml -js min -serve /home/andyman/.opam /home/andyman/.opam
+$ iocaml -js min -serve /home/andyman/.opam 
 ```
 
 This would allow files from the `.opam` directory to be read from the
-toplevel which in turn will enable dynamic loading of libraries.
+toplevel.
 
-Multiple `-serve` options can be specified.  The first argument
-is the uri at which files are available and the second the file system
-directory.
+* `-serve path` serves files from path to the same uri
+* `-serve-at uri path` serves files from path at the given uri
+* `-serve-jslibs` configure file server to serve system libraries for the JavaScript kernels.
+
+Multiple `-serve` options can be specified and they are tested in order
+until a file is found.
 
 The `js_of_ocaml` psuedo file system has been setup so you can use the standard
 file I/O facilities to access served files (read only at the moment, write
