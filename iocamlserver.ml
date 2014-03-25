@@ -70,11 +70,11 @@ let configure_js_serve () =
      * to the users compiler/findlib path, and *also* for the users findlib
      * paths *)
     serve_uri_path :=
-      (Filename.concat jsbase "ocaml") :: jsbase ::
+      (Filename.concat jsbase "ocaml") :: (Filename.concat jsbase "ocaml") :: jsbase ::
       stdlib :: findlib ::
       !serve_uri_path;
     serve_file_path := 
-      stdlib :: findlib ::
+      (Filename.concat findlib "toplevel") :: stdlib :: findlib ::
       stdlib :: findlib ::
       !serve_file_path
   end else begin
