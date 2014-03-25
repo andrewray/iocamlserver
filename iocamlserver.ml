@@ -98,7 +98,7 @@ let () =
         "-serve", String(fun s -> serve_uri_path := s :: !serve_uri_path;
                                  serve_file_path := s :: !serve_file_path),
                              "<uri+path> serve files from same path and uri";
-        "-serve-as", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
+        "-serve-at", Tuple([ String(fun s -> serve_uri_path := s :: !serve_uri_path); 
                              String(fun s -> serve_file_path := s :: !serve_file_path) ]), 
                              " <uri> <path> serve files from path on uri";
         "-serve-jslibs", Unit(configure_js_serve),
