@@ -8,6 +8,8 @@
  *
  *)
 
+open Iocaml_zmq
+
 type ws_stream = Websocket.Frame.t Lwt_stream.t
 type ws_push = Websocket.Frame.t option -> unit
 type ws_comm = ws_stream * ws_push 

@@ -8,46 +8,13 @@
  *
  *)
 
-(*
-
-kernel messages
----------------
-
- ipython/html/services/kernels/handlers.py
- ipython/html/static/notebook/js/notebook.js 
-
- /kernels?notebook=<guid> - send kernel id + ws_url, start kernel
- /kernels/<guid> - delete, stop kernel, status 204
- /kernels/<guid>/restart|interrupt - restart/interrupt kernel
- /kernels/<guid>/shell|iopub|stdin - websocket
-
-notebook messages
------------------
-
- ipython/html/services/notebooks/handlers.py
-
- /notebooks
- /notebooks/<guid>
- /notebooks/<guid>/checkpoints
- /notebooks/<guid>/checkpoints/<id>
-
-
-root messages 
--------------
-
- ipython/html/notebook/handlers.py
-
- /<guid>
- /new - new notebook
- /<guid>/copy - copy and redirect
- /<name> - redirect to guid
-
-*)
+(* see wiki for kernel messages *)
 
 open Printf
 open Lwt
 open Cohttp
 open Cohttp_lwt_unix
+open Iocaml_zmq
 
 let address = ref "127.0.0.1"
 let verbose = ref 0
@@ -152,9 +119,9 @@ let () =
 
 (* zmq initialization *)
 let zmq = ZMQ.Context.create ()
-let () = 
+(*let () = 
   let a,b,c = ZMQ.version() in
-  Printf.printf "ZMQ version: %i.%i.%i\n" a b c
+  Printf.printf "ZMQ version: %i.%i.%i\n" a b c*)
 
 let header typ = 
     let h = Header.init () in
