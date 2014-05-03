@@ -8,6 +8,8 @@
  *
  *)
 
+open Iocaml_zmq
+
 type kernel_args = 
     {
         log_file : string ref;
