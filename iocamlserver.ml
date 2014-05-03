@@ -151,7 +151,10 @@ let () =
     end
 
 (* zmq initialization *)
-let zmq = ZMQ.init ()
+let zmq = ZMQ.Context.create ()
+let () = 
+  let a,b,c = ZMQ.version() in
+  Printf.printf "ZMQ version: %i.%i.%i\n" a b c
 
 let header typ = 
     let h = Header.init () in

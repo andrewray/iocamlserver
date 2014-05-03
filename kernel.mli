@@ -67,11 +67,11 @@ val write_connection_file :
     zmq_heartbeat_port:int -> zmq_stdin_port:int -> string
 
 val start_kernel :
-    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string ->
+    zmq:ZMQ.Context.t -> path:string -> notebook_guid:string -> ip_addr:string ->
     kernel Lwt.t
 
 val get_kernel :
-    zmq:ZMQ.context -> path:string -> notebook_guid:string -> ip_addr:string -> 
+    zmq:ZMQ.Context.t -> path:string -> notebook_guid:string -> ip_addr:string -> 
     kernel Lwt.t
 
 val close_kernel : string -> unit

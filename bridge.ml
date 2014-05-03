@@ -82,8 +82,8 @@ let ws_init verbose uri (stream,push) =
         Lwt_stream.next stream >>= fun frame ->
             let open Kernel in
             (* we get one special message per channel, after which it's comms time *)
-            (*let cookie = Websocket.Frame.content frame in
-            lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in*)
+            let cookie = Websocket.Frame.content frame in
+            lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in
             (* parse the uri to find out which socket we want *)
             let get guid = 
                 match M.kernel_of_kernel_guid guid with
@@ -100,5 +100,8 @@ let ws_init verbose uri (stream,push) =
             | `Error_not_found -> 
                 Lwt.fail (Failure "invalid websocket url")
     
-    with _ -> return ()
+    with 
+    | x ->
+      lwt () = Lwt_io.eprintf "ws_init failed with %s\n" (Printexc.to_string x) in
+      return ()
 
