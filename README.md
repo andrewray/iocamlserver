@@ -1,3 +1,5 @@
+![IOCaml logo](/logos/IOlogo.svg?raw=true "IOCaml logo")
+
 # IOCaml Server
 
 IOCaml is an OCaml kernel for the 
