@@ -1,4 +1,4 @@
-<object type="image/svg+xml" data="/logos/IOlogo.svg"></object>
+![IOCaml logo](/logos/IOlogo.png "IOCaml logo")
 
 # IOCaml Server
 
