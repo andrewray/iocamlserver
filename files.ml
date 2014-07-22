@@ -90,30 +90,40 @@ let replace_dict k v = function
     | `Assoc(l) -> `Assoc ((k,v) :: (List.remove_assoc k l))
     | _ -> failwith "not a json dict"
 
-let prepare_ipynb_for_saving data = 
-    let open Yojson.Basic in
-    let json = from_string data in
+let rejoin = function
+    | `String s -> `String s
+    | `List l -> `String (String.concat "" (List.map Yojson.Basic.Util.to_string l))
+    | _ as x -> failwith ("rejoin: expecting string or list" ^ Yojson.Basic.pretty_to_string x)
 
-    let metadata = Util.member "metadata" json in
-    let name = Util.member "name" metadata in
-    let filename = Util.to_string name in
+let split = function
+  | `List l -> `List l
+  | `String s -> begin
+    let split str = 
+      let len = String.length str in
+      let rec scan pos = 
+        if pos = (len-1) then pos
+        else if str.[pos] = '\n' then pos
+        else scan (pos+1)
+      in
+      let rec split start_pos = 
+        if start_pos >= len then []
+        else
+          let end_pos = scan start_pos in
+          (start_pos,end_pos) :: split (end_pos+1)
+      in
+      List.map (fun (s,e) -> String.sub str s (e-s+1)) (split 0)
+    in
+    `List (List.map (fun s -> `String s) (split s))
+  end
+  | _ as x -> failwith ("split: expecting string or list" ^ Yojson.Basic.pretty_to_string x)
 
-    (* rewrite the json with an empty notebook name *) 
-    let json = replace_dict "metadata" (replace_dict "name" (`String "") metadata) json in
-    filename, pretty_to_string ~std:true json
-
-let rejoin_lines json = 
+let process_lines fn json = 
     let open Yojson.Basic in
 
     let failwith message json = 
         failwith (message ^ " : " ^ pretty_to_string json)
     in
 
-    let rejoin = function
-        | `String s -> `String s
-        | `List l -> `String (String.concat "" (List.map Util.to_string l))
-        | _ as x -> failwith "rejoin: expecting string or list" x
-    in
     let map_dict name json f = 
         let open Yojson.Basic in
         let el = Util.member name json in
@@ -129,21 +139,46 @@ let rejoin_lines json =
 
     let outputs json = 
         List.fold_left 
-            (fun json name -> map_dict name json rejoin)
+            (fun json name -> map_dict name json fn)
             json [ "text"; "html"; "svg"; "latex"; "javascript"; "json" ]
     in
     let cell json = 
         match Util.member "cell_type" json with
         | `String "code" ->
             (* rewrite "input" and "outputs" *)
-            let json = map_dict "input" json rejoin in
+            let json = map_dict "input" json fn in
             map_dict_list_el "outputs" json outputs 
         | `String _ ->
-            map_dict "source" json rejoin
+            map_dict "source" json fn
         | _ as x -> failwith "invalid cell type" x
     in
     let worksheet json = map_dict_list_el "cells" json cell in
     map_dict_list_el "worksheets" json worksheet
+
+let diffable_pretty_to_string json = 
+  let open Easy_format in
+  let rec f = function
+    | List(("[", s, c, p), t) -> 
+        List(("[", s, c, {p with wrap_body = `Force_breaks}), List.map f t)
+    | List((o, s, c, p), t) -> List((o, s, c, p), List.map f t)
+    | Label((t0, p), t1) -> Label((f t0, p), f t1)
+    | _ as x -> x
+  in
+  Pretty.to_string (f (Yojson.Basic.pretty_format ~std:true json))
+
+let prepare_ipynb_for_saving data = 
+    let open Yojson.Basic in
+    let json = from_string data in
+
+    let metadata = Util.member "metadata" json in
+    let name = Util.member "name" metadata in
+    let filename = Util.to_string name in
+
+    (* rewrite the json with an empty notebook name *) 
+    let json = replace_dict "metadata" (replace_dict "name" (`String "") metadata) json in
+    let json = process_lines split json in
+
+    filename, diffable_pretty_to_string json
 
 let load_ipynb_for_serving path nbname = 
     let open Yojson.Basic in
@@ -154,7 +189,7 @@ let load_ipynb_for_serving path nbname =
     let metadata = Util.member "metadata" json in
 
     let json = replace_dict "metadata" (replace_dict "name" (`String nbname) metadata) json in
-    lwt json = (Lwt.wrap1 rejoin_lines) json in
+    let json = process_lines rejoin json in
 
     return (to_string ~std:true json)
 
