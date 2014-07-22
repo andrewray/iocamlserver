@@ -42,7 +42,7 @@ let new_notebook_name cur =
 (* the json that's served for an empty notebook *)
 let empty_notebook title = 
     let open Yojson.Basic in
-    to_string ~std:true
+    pretty_to_string ~std:true
         (`Assoc [
             "metadata", `Assoc [ "language", `String "ocaml"; "name", `String title; ];
             "nbformat", `Int 3; "nbformat_minor", `Int 0;
@@ -100,7 +100,7 @@ let prepare_ipynb_for_saving data =
 
     (* rewrite the json with an empty notebook name *) 
     let json = replace_dict "metadata" (replace_dict "name" (`String "") metadata) json in
-    filename, to_string ~std:true json
+    filename, pretty_to_string ~std:true json
 
 let rejoin_lines json = 
     let open Yojson.Basic in
