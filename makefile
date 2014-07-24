@@ -17,7 +17,7 @@ install:
 
 clean:
 	ocamlbuild -clean
-	- rm *~
-	- rm *.json
-	-rm filesys.ml
+	- rm -f *~
+	- rm -f *.json
+	-rm -f filesys.ml
 
