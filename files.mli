@@ -19,7 +19,7 @@ val empty_notebook : string -> string
 val file_or_path : string -> string * string
 
 (** extract notebook name from json, then remove it *)
-val prepare_ipynb_for_saving : string -> string * string
+val prepare_ipynb_for_saving : bool -> string -> string * string
 
 val load_ipynb_for_serving : (string -> string) -> string -> string Lwt.t
 

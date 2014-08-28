@@ -166,7 +166,7 @@ let diffable_pretty_to_string json =
   in
   Pretty.to_string (f (Yojson.Basic.pretty_format ~std:true json))
 
-let prepare_ipynb_for_saving data = 
+let prepare_ipynb_for_saving no_split_lines data = 
     let open Yojson.Basic in
     let json = from_string data in
 
@@ -176,9 +176,12 @@ let prepare_ipynb_for_saving data =
 
     (* rewrite the json with an empty notebook name *) 
     let json = replace_dict "metadata" (replace_dict "name" (`String "") metadata) json in
-    let json = process_lines split json in
+    let json = 
+      if no_split_lines then to_string ~std:true json 
+      else diffable_pretty_to_string (process_lines split json) 
+    in
 
-    filename, diffable_pretty_to_string json
+    filename, json
 
 let load_ipynb_for_serving path nbname = 
     let open Yojson.Basic in

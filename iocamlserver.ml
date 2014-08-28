@@ -56,6 +56,7 @@ let configure_js_serve () =
       !serve_file_path
   end
 
+let no_split_lines = ref false
 
 let () = 
     Arg.(parse (align [
@@ -75,6 +76,7 @@ let () =
         "-completion", Set(Kernel.(kernel_args.completion)), " enable tab completion";
         "-object-info", Set(Kernel.(kernel_args.object_info)), " enable introspection";
         "-browser", Set_string(browser), "<exe> browser command [xdg-open]";
+        "-no-split-lines", Set(no_split_lines), " dont split lines when saving";
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
@@ -260,7 +262,7 @@ let get_filename_of_ipynb s =
 let save_notebook guid body = 
     let old_filename = Kernel.M.filename_of_notebook_guid guid in
     (*lwt new_filename = get_filename_of_ipynb body in*)
-    let new_filename, body = Files.prepare_ipynb_for_saving body in
+    let new_filename, body = Files.prepare_ipynb_for_saving !no_split_lines body in
     lwt () = Lwt_io.(with_file ~mode:output 
         (filename (new_filename ^ ".ipynb"))
         (fun f -> write f body))
