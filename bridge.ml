@@ -84,7 +84,7 @@ let ws_init verbose uri (stream,push) =
             let open Kernel in
             (* we get one special message per channel, after which it's comms time *)
             let cookie = Websocket.Frame.content frame in
-            lwt () = Lwt_io.eprintf "cookie: %s\n" cookie in
+            lwt () = if verbose > 1 then Lwt_io.eprintf "cookie: %s\n" cookie else return () in
             (* parse the uri to find out which socket we want *)
             let get guid = 
                 match M.kernel_of_kernel_guid guid with
@@ -103,6 +103,9 @@ let ws_init verbose uri (stream,push) =
     
     with 
     | x ->
-      lwt () = Lwt_io.eprintf "ws_init failed with %s\n" (Printexc.to_string x) in
+      lwt () = 
+        if verbose > 0 then Lwt_io.eprintf "ws_init failed with %s\n" (Printexc.to_string x)
+        else return ()
+      in
       return ()
 

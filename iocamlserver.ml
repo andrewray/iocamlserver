@@ -436,10 +436,11 @@ let run_servers address notebook_path =
     in
     lwt http_port = find_port_pair 8888 in
     let ws_port = http_port + 1 in
-    if !verbose > 0 then begin
+    let () = Printf.printf "[iocaml] listening on %s:%d\n%!" address http_port in
+    (*if !verbose > 0 then begin
       Printf.printf "listening for HTTP on port: %d\n%!" http_port;
       Printf.printf "listening for websockets on port: %d\n%!" ws_port;
-    end;
+    end;*)
 
     (* http server *)
     let http_server = http_server address http_port ws_port notebook_path in

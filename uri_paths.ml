@@ -120,7 +120,7 @@ let decode_ws =
 
 let decode_file data = 
     let re = List.map (fun (u,p) -> 
-        [s; str u; s; group (rep any); eos], 
+        [(*s;*) str u; s; group (rep any); eos], 
         (fun r -> 
           let f = Filename.concat p r.(1) in
           if Sys.file_exists f then `File(f)
