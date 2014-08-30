@@ -1,5 +1,7 @@
 ![IOCaml logo](/logos/IOlogo.png "IOCaml logo")
 
+[![Build Status](https://travis-ci.org/andrewray/iocamlserver.svg?branch=master)](https://travis-ci.org/andrewray/iocamlserver)
+
 # IOCaml Server
 
 IOCaml is an OCaml kernel for the 
