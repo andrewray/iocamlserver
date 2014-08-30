@@ -27,7 +27,7 @@ opam update
 
 # install external deps
 DEPEXT=`opam install $PKG -e ubuntu`
-if [ $DEPEXT != "" ]; then
+if [ "$DEPEXT" != "" ]; then
 sudo apt-get install -qq $DEPEXT
 fi
 
