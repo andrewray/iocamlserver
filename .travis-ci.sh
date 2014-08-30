@@ -9,14 +9,31 @@ case "$OCAML_VERSION,$OPAM_VERSION" in
 *) echo Unknown $OCAML_VERSION,$OPAM_VERSION; exit 1 ;;
 esac
 
+PKG=iocaml.999.9.9
+
+# install ocaml compilers
 echo "yes" | sudo add-apt-repository ppa:$ppa
 sudo apt-get update -qq
 sudo apt-get install -qq ocaml ocaml-native-compilers camlp4-extra opam
+
+# initialize opam
 export OPAMYES=1
 opam init 
 eval `opam config env`
+
+# add dev repo
 opam remote add iocaml-dev git://github.com/andrewray/opam.git
 opam update
-opam install iocaml.999.9.9 --deps-only
+
+# install external deps
+DEPEXT=`opam install $PKG -e ubuntu`
+if [ $DEPEXT != "" ]; then
+sudo apt-get install -qq $DEPEXT
+fi
+
+# install package deps
+opam install $PKG --deps-only
+
+# build 
 make
 
