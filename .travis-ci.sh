@@ -17,6 +17,9 @@ sudo apt-get install -qq ocaml ocaml-native-compilers camlp4-extra opam
 wget https://github.com/ocaml/opam/releases/download/1.2.0-beta4/$OPAM
 chmod +x $OPAM
 export OPAMYES=1
+ls -la
+pwd
+file $OPAM
 ./$OPAM init 
 eval `opam config env`
 ./$OPAM remote add iocaml-dev git://github.com/andrewray/opam.git
