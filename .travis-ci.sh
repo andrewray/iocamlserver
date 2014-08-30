@@ -15,6 +15,7 @@ echo "yes" | sudo add-apt-repository ppa:$ppa
 sudo apt-get update -qq
 sudo apt-get install -qq ocaml ocaml-native-compilers camlp4-extra opam
 wget https://github.com/ocaml/opam/releases/download/1.2.0-beta4/$OPAM
+chmod +x $OPAM
 export OPAMYES=1
 ./$OPAM init 
 eval `opam config env`
