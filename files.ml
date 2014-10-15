@@ -196,4 +196,143 @@ let load_ipynb_for_serving path nbname =
 
     return (to_string ~std:true json)
 
+(*************************************************************)
+(* static site generation *)
+
+let paths fln = 
+  let rec paths lst fln = 
+    let dir = Filename.dirname fln in
+    match lst with
+    | prev_dir :: tl when prev_dir = dir -> lst
+    | _ -> paths (dir :: lst) dir
+  in
+  paths [fln] fln
+
+let create_dir_for_file to_file = 
+  let to_dir = Filename.dirname to_file in
+  let to_paths = paths to_dir in
+  let create_dir d = 
+    try 
+      if Sys.is_directory d then ()
+      else failwith ("not a directory: " ^ d)
+    with Sys_error _ -> begin
+      try Unix.mkdir d 0o777 
+      with _ -> failwith ("couldn't make directory: " ^ d)
+    end
+  in
+  List.iter create_dir to_paths
+
+let write_file data to_file = 
+  let f = open_out_bin to_file in
+  output_string f data;
+  close_out f
+
+let copy_static to_dir = 
+  let files = Filesys.file_list in
+  let write_static_file from_file = 
+    let to_file = Filename.concat to_dir from_file in
+    (* create dir if it doesn't exist already *)
+    create_dir_for_file to_file;
+    (match Filesys.read from_file with
+    | None -> failwith ("couldn't find file in filesys: " ^ from_file)
+    | Some(data) -> write_file data to_file)
+  in
+  let () = Printf.printf "copying static files...%!" in
+  let () = List.iter write_static_file files in
+  let () = Printf.printf "ok\n%!" in
+  ()
+
+let copy_js_kernel to_dir iocamljs_kernel_path iocamljs_kernel = 
+  let kernel_name = "kernel." ^ iocamljs_kernel ^ ".js" in
+  let kernel_name = Filename.concat "static/services/kernels/js" kernel_name in
+  let in_file = Filename.concat iocamljs_kernel_path kernel_name in
+  let () = Printf.printf "copying kernel '%s'...%!" in_file in
+  let in_file = open_in in_file in
+  let out_file = Filename.concat to_dir kernel_name in
+  let out_file = open_out out_file in
+  let buf = Bytes.create 1024 in
+  let rec copy () =
+    let len = input in_file buf 0 1024 in
+    if len=0 then ()
+    else begin
+      output out_file buf 0 len;
+      copy ()
+    end
+  in 
+  let () = copy () in
+  let () = Printf.printf "ok\n%!" in
+  ()
+
+let get_notebook_list notebook_path filename = 
+  let () = Printf.printf "getting notebook list...%!" in
+  let nb = 
+    if filename <> "" then
+      (* just the 1 notebook, as specified on the commandline.  check it exists *)
+      let notebook_filename = Filename.concat notebook_path filename in
+      if Sys.file_exists notebook_filename then [notebook_filename]
+      else failwith ("notebook doesn't exist: " ^ notebook_filename)
+    else
+      (* find all notebooks in given directory *)
+      let dirh = Unix.opendir notebook_path in
+      let rec f () = 
+        match (try Some( Unix.readdir dirh ) with _ -> None) with
+        | None -> []
+        | Some(x) -> (Filename.concat notebook_path x) :: f ()
+      in
+      let files = f () in
+      let () = Unix.closedir dirh in
+      let notebook_filenames = List.filter (fun s -> Filename.check_suffix s ".ipynb") files in
+      match notebook_filenames with
+      | [] -> failwith ("no notebooks in: " ^ notebook_path)
+      | _ -> notebook_filenames
+  in
+  let () = Printf.printf "ok\n%!" in
+  nb
+
+let create_notebook_html to_dir base_path js_kernel notebook_name = 
+  let () = Printf.printf "creating html for %s...%!" notebook_name in
+  let path = base_path ^ "/notebooks" in
+  let notebook_guid = Filename.basename notebook_name in
+  let html = Pages.generate_notebook_html 
+    ~base_path ~title:"IOCaml-Notebook" ~path ~notebook_guid ~kernel:js_kernel
+  in
+  let html_file_name = 
+    let html_file = Filename.(chop_suffix notebook_guid ".ipynb") ^ ".html" in
+    Filename.(concat to_dir html_file)
+  in
+  let f = open_out html_file_name in
+  let () = output_string f html in
+  let () = close_out f in
+  let () = Printf.printf "ok\n%!" in
+  ()
+
+let copy_ipynb to_dir notebook_name = 
+  let () = Printf.printf "copying notebook %s...%!" notebook_name in
+  (* load the notebook (into servable format) *)
+  let notebook_dir = Filename.dirname notebook_name in
+  let notebook_file_name = Filename.basename notebook_name in
+  lwt notebook = 
+    let file = Filename.(chop_suffix notebook_file_name ".ipynb") in
+    load_ipynb_for_serving (Filename.concat notebook_dir) file
+  in
+  (* save the notebook *)
+  let output_notebook_file_name = 
+    Filename.(concat to_dir (concat "notebooks" notebook_file_name)) 
+  in
+  let () = create_dir_for_file output_notebook_file_name in
+  let f = open_out output_notebook_file_name in
+  let () = output_string f notebook in
+  let () = close_out f in
+  let () = Printf.printf "ok\n%!" in
+  Lwt.return ()
+
+let create_static_site 
+  ~to_dir ~notebook_path ~notebook_filename 
+  ~iocamljs_kernel_path ~iocamljs_kernel 
+  ~base_path = 
+  let () = copy_static to_dir in
+  let () = copy_js_kernel to_dir iocamljs_kernel_path iocamljs_kernel in
+  let notebooks = get_notebook_list notebook_path notebook_filename in
+  let () = List.iter (create_notebook_html to_dir base_path iocamljs_kernel) notebooks in
+  Lwt_list.iter_s (copy_ipynb to_dir) notebooks 
 

@@ -23,3 +23,8 @@ val prepare_ipynb_for_saving : bool -> string -> string * string
 
 val load_ipynb_for_serving : (string -> string) -> string -> string Lwt.t
 
+val create_static_site : 
+  to_dir:string -> notebook_path:string -> notebook_filename:string -> 
+  iocamljs_kernel_path:string -> iocamljs_kernel:string -> 
+  base_path:string -> unit Lwt.t
+

@@ -98,7 +98,7 @@ let page
     <div class="navbar-inner navbar-nobg">
         <div class="container">
             <div id="ipython_notebook" class="nav brand pull-left">
-                <a href="$str:base_project_url$" alt='dashboard'>
+              <a href="$str:base_project_url$" alt='dashboard'>
                     <img src=$str:static_url "base/images/ipynblogo.png"$ 
                          alt='IPython Notebook'/>
                 </a>
@@ -166,14 +166,18 @@ let notebook_header =
 </span>
 >>
 
-let notebook_site = 
-<:html<
-<div id="menubar-container" class="container">
-<div id="menubar">
-<div class="navbar">
-  <div class="navbar-inner">
-    <div class="container">
-    <ul id="menus" class="nav">
+let notebook_site online js_kernel = 
+  let file_menu = 
+    if online then
+      <:html<
+        <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
+            <ul class="dropdown-menu">
+              <li id="download_ipynb"><a href="#">Download Notebook (.ipynb)</a></li>
+            </ul>
+        </li>
+      >>
+    else
+      <:html<
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
             <ul class="dropdown-menu">
                 <li id="new_notebook"><a href="#">New</a></li>
@@ -206,6 +210,29 @@ let notebook_site =
                 <li id="kill_and_exit"><a href="#" >Close and halt</a></li>
             </ul>
         </li>
+      >>
+  in
+  let kernel_menu = 
+    if js_kernel then 
+      <:html< >>
+    else
+      <:html<
+        <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Kernel</a>
+            <ul class="dropdown-menu">
+                <li id="int_kernel"><a href="#">Interrupt</a></li>
+                <li id="restart_kernel"><a href="#">Restart</a></li>
+            </ul>
+        </li>
+      >>
+  in
+<:html<
+<div id="menubar-container" class="container">
+<div id="menubar">
+<div class="navbar">
+  <div class="navbar-inner">
+    <div class="container">
+    <ul id="menus" class="nav">
+        $file_menu$
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
             <ul class="dropdown-menu">
                 <li id="cut_cell"><a href="#">Cut Cell</a></li>
@@ -272,12 +299,7 @@ let notebook_site =
                 </li>
             </ul>
         </li>
-        <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Kernel</a>
-            <ul class="dropdown-menu">
-                <li id="int_kernel"><a href="#">Interrupt</a></li>
-                <li id="restart_kernel"><a href="#">Restart</a></li>
-            </ul>
-        </li>
+        $kernel_menu$
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Help</a>
             <ul class="dropdown-menu">
 
@@ -472,18 +494,18 @@ let dashboard_scripts static_url =
     <script src=$str:static_url "tree/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
 >>
 
-let generate_notebook_html ~title ~path ~notebook_guid ~kernel = 
+let generate_notebook_html ~base_path ~title ~path ~notebook_guid ~kernel = 
     
-    let static_url x = "/static/" ^ x in
-    let mathjax_url = "http://cdn.mathjax.org/mathjax/latest/MathJax.js" in
-    let base_project_url = "/" in
-    let data_base_project_url = "/" in
+    let static_url x = base_path ^ "/static/" ^ x in
+    let mathjax_url = "https://cdn.mathjax.org/mathjax/latest/MathJax.js" in
+    let base_project_url = if base_path="" then "/" else base_path in
+    let data_base_project_url = base_path ^ "/" in
     let data_base_kernel_url = "/" in
     let body_class = "notebook_app" in
 
     let style = notebook_stylesheet mathjax_url static_url in
     let header = notebook_header in
-    let site = notebook_site in
+    let site = notebook_site (base_path <> "") (kernel <> "") in
     let script = notebook_scripts static_url kernel in
 
     let page = page 

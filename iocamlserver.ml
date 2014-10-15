@@ -58,6 +58,9 @@ let configure_js_serve () =
 
 let no_split_lines = ref false
 
+let static_site_path = ref ""
+let static_site_base_path = ref ""
+
 let () = 
     Arg.(parse (align [
         "-ip", Set_string(address), "<ip-address> ip address of server";
@@ -77,6 +80,10 @@ let () =
         "-object-info", Set(Kernel.(kernel_args.object_info)), " enable introspection";
         "-browser", Set_string(browser), "<exe> browser command [xdg-open]";
         "-no-split-lines", Set(no_split_lines), " dont split lines when saving";
+        "-create-static-site", Set_string(static_site_path), 
+          " <output path> create site for static serving (ie gh-pages)";
+        "-static-site-base-path", Set_string(static_site_base_path), 
+          " <base path> set static site base path";
         "-v", Unit(fun () -> incr verbose), " increase verbosity";
     ])
     (fun s -> file_or_path := s)
@@ -121,9 +128,6 @@ let () =
 
 (* zmq initialization *)
 let zmq = ZMQ.Context.create ()
-(*let () = 
-  let a,b,c = ZMQ.version() in
-  Printf.printf "ZMQ version: %i.%i.%i\n" a b c*)
 
 let header typ = 
     let h = Header.init () in
@@ -244,21 +248,6 @@ let serve_static_files uri =
     else
         serve_crunched_files uri
 
-(*
-let find_dict name json = 
-    match json with
-    | `Assoc(l) -> ((wrap2 List.assoc) name l)
-    | _ -> fail (Failure "find_dict")
-
-let get_string = function
-    | `String s -> return s 
-    | _ -> fail (Failure "get_string")
-
-(* extract filename from metadata *)
-let get_filename_of_ipynb s = 
-    Yojson.Basic.from_string s |> find_dict "metadata" >>= find_dict "name" >>= get_string
-*)
-
 let save_notebook guid body = 
     let old_filename = Kernel.M.filename_of_notebook_guid guid in
     (*lwt new_filename = get_filename_of_ipynb body in*)
@@ -320,6 +309,7 @@ let http_server address port ws_port notebook_path =
 
         | `Root_guid(guid) -> 
             let notebook = Pages.generate_notebook_html 
+                ~base_path:""
                 ~title:"IOCaml-Notebook" ~path:notebook_path 
                 ~notebook_guid:guid ~kernel:!iocamljs_kernel
             in
@@ -472,7 +462,7 @@ let close_kernels () =
     Kernel.M.iter_kernels
         (fun _ v -> v.Kernel.process#terminate) 
 
-let _ = 
+let run_iocaml_server () = 
     Sys.catch_break true;
     try 
         (*at_exit close_kernels;*)
@@ -482,5 +472,17 @@ let _ =
         close_kernels ();
         (*ZMQ.term zmq*)
     end
+
+let () = 
+  if !static_site_path = "" then 
+    run_iocaml_server ()
+  else 
+    Lwt_unix.run 
+      (Files.create_static_site 
+        ~to_dir:!static_site_path
+        ~notebook_path ~notebook_filename:file_to_open
+        ~iocamljs_kernel_path:!static_file_path
+        ~iocamljs_kernel:!iocamljs_kernel
+        ~base_path:!static_site_base_path)
 
 
