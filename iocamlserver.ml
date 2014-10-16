@@ -25,6 +25,7 @@ let serve_uri_path = ref []
 let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
+let iocamljs_kernel_file_path = ref ""
 let browser = ref Config.default_browser_command
 
 let () = Findlib.init () 
@@ -112,7 +113,7 @@ let () =
             with
             | _ -> failwith ("could not query opam for share directory")
         in
-        static_file_path := share ^ "/iocamljs-kernel/profile"
+        iocamljs_kernel_file_path := share ^ "/iocamljs-kernel/profile"
     end
 
 let () = 
@@ -121,6 +122,7 @@ let () =
         Printf.printf "notebook path: '%s'\n" notebook_path;
         Printf.printf "file to open: '%s'\n" file_to_open;
         Printf.printf "extra static dir: '%s'\n" !static_file_path;
+        Printf.printf "js kernel dir: '%s'\n" !iocamljs_kernel_file_path;
         List.iter (fun (u,p) ->
             Printf.printf "serve uri: '%s' -> '%s'\n" u p) serve_files;
         flush stdout;
@@ -235,18 +237,25 @@ let serve_crunched_files uri =
         Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
 
 let serve_static_files uri = 
-    if !static_file_path <> "" then
-        let fname = Server.resolve_file ~docroot:!static_file_path ~uri:uri in
-        if Sys.file_exists fname then
-            lwt () =
-                if !verbose > 0 then Lwt_io.eprintf "  [  STATIC]: %s\n" fname 
-                else return ()
-            in
-            Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
-        else
-            serve_crunched_files uri
+  let serve_from path next = 
+    if path <> "" then
+      let fname = Server.resolve_file ~docroot:path ~uri:uri in
+      if Sys.file_exists fname then
+        lwt () =
+          if !verbose > 0 then Lwt_io.eprintf "  [  STATIC]: %s [%s]\n" fname path
+          else return ()
+        in
+        Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
+      else
+        next ()
     else
-        serve_crunched_files uri
+      next ()
+  in
+  serve_from !static_file_path
+    (fun () -> 
+      serve_from !iocamljs_kernel_file_path
+        (fun () -> 
+          serve_crunched_files uri))
 
 let save_notebook guid body = 
     let old_filename = Kernel.M.filename_of_notebook_guid guid in
@@ -481,7 +490,7 @@ let () =
       (Files.create_static_site 
         ~to_dir:!static_site_path
         ~notebook_path ~notebook_filename:file_to_open
-        ~iocamljs_kernel_path:!static_file_path
+        ~iocamljs_kernel_path:!iocamljs_kernel_file_path
         ~iocamljs_kernel:!iocamljs_kernel
         ~base_path:!static_site_base_path)
 
