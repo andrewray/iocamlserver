@@ -53,7 +53,7 @@ let ws_of_zmq_message data =
 
 let ws_to_zmq verbose name stream socket = 
     lwt frame = Lwt_stream.next stream in
-    let data = Websocket.Frame.content frame in
+    let data = match Websocket.Frame.content frame with None -> "" | Some(data) -> data in
     lwt () = 
         if verbose > 1 then Lwt_io.eprintf "[ws->zmq]%s: %s\n" name data 
         else return ()
@@ -69,7 +69,7 @@ let zmq_to_ws verbose name socket push =
     in
     try_lwt
         let frame = ws_of_zmq_message frames in
-        Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string frame))) 
+        Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string ~content:frame ()))) 
     with _ -> return ()
 
 let rec ws_zmq_comms verbose name socket uri (stream,push) = 
@@ -83,8 +83,8 @@ let ws_init verbose uri (stream,push) =
         Lwt_stream.next stream >>= fun frame ->
             let open Kernel in
             (* we get one special message per channel, after which it's comms time *)
-            let cookie = Websocket.Frame.content frame in
-            lwt () = if verbose > 1 then Lwt_io.eprintf "cookie: %s\n" cookie else return () in
+            let cookie = match Websocket.Frame.content frame with None -> "" | Some(data) -> data in
+            lwt () = if verbose > 1 then Lwt_io.eprintf "cookie:[%i] %s\n" (String.length cookie) cookie else return () in
             (* parse the uri to find out which socket we want *)
             let get guid = 
                 match M.kernel_of_kernel_guid guid with

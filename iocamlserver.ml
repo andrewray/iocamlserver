@@ -276,7 +276,7 @@ let save_notebook guid body =
 let http_server address port ws_port notebook_path =
     let decode = Uri_paths.decode serve_files in
     
-    let callback conn_id req body =
+    let callback (_,conn_id) req body =
         let uri = Request.uri req in
         let meth = Request.meth req in
         let path = Uri.path uri in
@@ -420,9 +420,15 @@ let http_server address port ws_port notebook_path =
 
         | `Error_not_found | _ -> not_found ()
     in
-    let conn_closed conn_id () = () in
+    (*let conn_closed conn_id () = () in
     let config = { Server.callback; conn_closed } in
-    Server.create ~address ~port config
+    Server.create ~address ~port config*)
+    let conn_closed (_,_) = () in
+    lwt ctx = Conduit_lwt_unix.init ~src:address () in
+    let ctx = Cohttp_lwt_unix_net.init ~ctx () in
+    let mode = `TCP (`Port port) in
+    let config = Cohttp_lwt_unix.Server.make ~callback ~conn_closed () in
+    Cohttp_lwt_unix.Server.create ~ctx ~mode config
 
 let run_servers address notebook_path = 
     lwt () = register_notebooks notebook_path in
