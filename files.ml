@@ -242,13 +242,23 @@ let copy_static to_dir =
   let () = Printf.printf "ok\n%!" in
   ()
 
-let copy_js_kernel to_dir iocamljs_kernel_path iocamljs_kernel = 
-  let kernel_name = "kernel." ^ iocamljs_kernel ^ ".js" in
-  let kernel_name = Filename.concat "static/services/kernels/js" kernel_name in
-  let in_file = Filename.concat iocamljs_kernel_path kernel_name in
+let copy_js_kernel to_dir iocaml_kernel = 
+  let mk_kernel_name t = "kernel." ^ t ^ ".js" in
+  let spath = "static/services/kernels/js" in
+  let in_file = 
+    match iocaml_kernel with
+    | `byte_code_kernel -> failwith "you must specify a javascript kernel"
+    | `js_kernel(p, t) -> Filename.concat p (Filename.concat spath (mk_kernel_name t)) 
+    | `js_kernel_file f -> f
+  in
+  let out_file = 
+    match iocaml_kernel with
+    | `byte_code_kernel -> failwith "you must specify a javascript kernel"
+    | `js_kernel(p, t) -> Filename.concat to_dir (Filename.concat spath (mk_kernel_name t))
+    | `js_kernel_file(f) -> Filename.concat to_dir (Filename.concat spath "kernel.js")
+  in
   let () = Printf.printf "copying kernel '%s'...%!" in_file in
   let in_file = open_in in_file in
-  let out_file = Filename.concat to_dir kernel_name in
   let out_file = open_out out_file in
   let buf = Bytes.create 1024 in
   let rec copy () =
@@ -328,11 +338,11 @@ let copy_ipynb to_dir notebook_name =
 
 let create_static_site 
   ~to_dir ~notebook_path ~notebook_filename 
-  ~iocamljs_kernel_path ~iocamljs_kernel 
+  ~iocaml_kernel 
   ~base_path = 
   let () = copy_static to_dir in
-  let () = copy_js_kernel to_dir iocamljs_kernel_path iocamljs_kernel in
+  let () = copy_js_kernel to_dir iocaml_kernel in
   let notebooks = get_notebook_list notebook_path notebook_filename in
-  let () = List.iter (create_notebook_html to_dir base_path iocamljs_kernel) notebooks in
+  let () = List.iter (create_notebook_html to_dir base_path iocaml_kernel) notebooks in
   Lwt_list.iter_s (copy_ipynb to_dir) notebooks 
 

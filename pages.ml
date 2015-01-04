@@ -359,10 +359,12 @@ let notebook_site online js_kernel =
 >>
 
 let notebook_scripts static_url kernel =
-    let kernel = static_url 
-        ("services/kernels/js/kernel" ^
-            (if kernel="" then "" else "." ^ kernel) 
-            ^ ".js")
+    let kernel = 
+      let kpath = "services/kernels/js/kernel" in
+      static_url 
+        (match kernel with
+        | `byte_code_kernel | `js_kernel_file(_) -> kpath ^ ".js"
+        | `js_kernel(_, t) -> kpath ^ "." ^ t ^ ".js")
     in
 <:html<
 <script src=$str:static_url "components/codemirror/lib/codemirror.js"$ charset="utf-8"> </script>
@@ -505,7 +507,7 @@ let generate_notebook_html ~base_path ~title ~path ~notebook_guid ~kernel =
 
     let style = notebook_stylesheet mathjax_url static_url in
     let header = notebook_header in
-    let site = notebook_site (base_path <> "") (kernel <> "") in
+    let site = notebook_site (base_path <> "") (kernel <> `byte_code_kernel) in
     let script = notebook_scripts static_url kernel in
 
     let page = page 

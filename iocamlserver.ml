@@ -26,36 +26,22 @@ let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
 let iocamljs_kernel_file_path = ref ""
+
 let browser = ref Config.default_browser_command
 
 let () = Findlib.init () 
 let configure_js_serve () = 
   let stdlib = Findlib.ocaml_stdlib () in
   let findlib = Findlib.default_location () in
-  let jsbase = "/home/andyman/.opam/4.01.0-test/lib" in
-  if Config.static_js then begin
-    (* a bit of a bodge.  we set up mappings for my compiler/findlib path 
-     * to the users compiler/findlib path, and *also* for the users findlib
-     * paths *)
-    serve_uri_path :=
-      (Filename.concat jsbase "ocaml") :: (Filename.concat jsbase "ocaml") :: jsbase ::
-      stdlib :: findlib ::
-      !serve_uri_path;
-    serve_file_path := 
-      (Filename.concat findlib "toplevel") :: stdlib :: findlib ::
-      stdlib :: findlib ::
-      !serve_file_path
-  end else begin
-    (* as it should be - mapping for compiler and findlib *)
-    serve_uri_path :=
-      stdlib ::
-      findlib ::
-      !serve_uri_path;
-    serve_file_path := 
-      stdlib ::
-      findlib ::
-      !serve_file_path
-  end
+  (* mapping for compiler and findlib *)
+  serve_uri_path :=
+    stdlib ::
+    findlib ::
+    !serve_uri_path;
+  serve_file_path := 
+    stdlib ::
+    findlib ::
+    !serve_file_path
 
 let no_split_lines = ref false
 
@@ -96,36 +82,51 @@ let filename name = Filename.(concat notebook_path name)
 
 let serve_files = List.rev (List.map2 (fun a b -> a,b) !serve_uri_path !serve_file_path)
 
+let share_dir () = 
+  try
+      let ic = Unix.open_process_in ("opam config var share 2>/dev/null") in
+      let r = input_line ic in
+      let r =
+          let len = String.length r in
+          if len>0 && r.[len - 1] = '\r' then String.sub r 0 (len-1) else r
+      in
+      match Unix.close_process_in ic with
+      | Unix.WEXITED 0 -> r
+      | _ -> failwith ""
+  with
+  | _ -> failwith ("could not query opam for share directory")
+
 (* process -js option and set up static file path *)
 let () = 
-    if !iocamljs_kernel <> "" then begin
-        let share =
-            try
-                let ic = Unix.open_process_in ("opam config var share 2>/dev/null") in
-                let r = input_line ic in
-                let r =
-                    let len = String.length r in
-                    if len>0 && r.[len - 1] = '\r' then String.sub r 0 (len-1) else r
-                in
-                match Unix.close_process_in ic with
-                | Unix.WEXITED 0 -> r
-                | _ -> failwith ""
-            with
-            | _ -> failwith ("could not query opam for share directory")
-        in
-        iocamljs_kernel_file_path := share ^ "/iocamljs-kernel/profile"
-    end
+  if !iocamljs_kernel <> "" then begin
+    let share = share_dir () in
+    iocamljs_kernel_file_path := share ^ "/iocamljs-kernel/profile"
+  end
+
+let iocaml_kernel =
+  match !iocamljs_kernel with
+  (* standard byte code kernel, communicated over websockets.  uses kernel.js from ipython *)
+  | "" -> `byte_code_kernel
+  (* direct file link to javscript kernel *) 
+  | k when Sys.file_exists k && Filename.check_suffix k ".js" -> `js_kernel_file(k)
+  (* javascript kernel loaded from std install dir *)
+  | k -> `js_kernel(share_dir() ^ "/iocamljs-kernel/profile", k)
 
 let () = 
     if !verbose > 0 then begin
-        Printf.printf "ip address: '%s'\n" !address;
-        Printf.printf "notebook path: '%s'\n" notebook_path;
-        Printf.printf "file to open: '%s'\n" file_to_open;
-        Printf.printf "extra static dir: '%s'\n" !static_file_path;
-        Printf.printf "js kernel dir: '%s'\n" !iocamljs_kernel_file_path;
-        List.iter (fun (u,p) ->
-            Printf.printf "serve uri: '%s' -> '%s'\n" u p) serve_files;
-        flush stdout;
+      let open Printf in
+      printf "ip address: '%s'\n" !address;
+      printf "notebook path: '%s'\n" notebook_path;
+      printf "file to open: '%s'\n" file_to_open;
+      printf "extra static dir: '%s'\n" !static_file_path;
+      printf "js kernel dir: '%s'\n" !iocamljs_kernel_file_path;
+      List.iter (fun (u,p) ->
+        printf "serve uri: '%s' -> '%s'\n" u p) serve_files;
+      (match iocaml_kernel with
+      | `byte_code_kernel -> printf "kernel: byte code\n"
+      | `js_kernel_file(f) -> printf "kernel: javascript file %s\n" f
+      | `js_kernel(p,t) -> printf "kernel: javscript %s @ %s\n" t p);
+      flush stdout;
     end
 
 (* zmq initialization *)
@@ -236,26 +237,43 @@ let serve_crunched_files uri =
     | Some(x) -> 
         Server.respond_string ~status:`OK ~headers:(header_of_extension fname) ~body:x ())
 
-let serve_static_files uri = 
-  let serve_from path next = 
-    if path <> "" then
-      let fname = Server.resolve_file ~docroot:path ~uri:uri in
-      if Sys.file_exists fname then
-        lwt () =
-          if !verbose > 0 then Lwt_io.eprintf "  [  STATIC]: %s [%s]\n" fname path
-          else return ()
-        in
-        Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
-      else
-        next ()
+let serve_from uri path next = 
+  if path <> "" then
+    let fname = Server.resolve_file ~docroot:path ~uri:uri in
+    if Sys.file_exists fname then
+      lwt () =
+        if !verbose > 0 then Lwt_io.eprintf "  [  STATIC]: %s [%s] [%s]\n" fname path (Uri.path uri)
+        else return ()
+      in
+      Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
     else
       next ()
-  in
+  else
+    next ()
+
+let serve_static_files_old uri = 
+  let serve_from = serve_from uri in
   serve_from !static_file_path
     (fun () -> 
       serve_from !iocamljs_kernel_file_path
-        (fun () -> 
-          serve_crunched_files uri))
+        (fun () -> serve_crunched_files uri))
+
+let serve_static_files uri = 
+  let serve_from = serve_from uri in
+  serve_from !static_file_path (fun () ->
+    match iocaml_kernel with
+    | `byte_code_kernel -> serve_crunched_files uri
+    | `js_kernel(path, _) -> serve_from path (fun () -> serve_crunched_files uri)
+    | `js_kernel_file(fname) -> (* XXX this wont serve the custom icon I think XXX not hugely important, but to be fixed! *)
+      if Uri.path uri = "/static/services/kernels/js/kernel.js" then begin
+        lwt () = 
+          if !verbose > 0 then 
+            Lwt_io.eprintf "  [JSKERNEL]: %s [%s]\n" fname (Uri.path uri) 
+            else return ()
+        in
+        Server.respond_file ~headers:(header_of_extension fname) ~fname:fname ()
+      end else serve_crunched_files uri
+  )
 
 let save_notebook guid body = 
     let old_filename = Kernel.M.filename_of_notebook_guid guid in
@@ -320,7 +338,7 @@ let http_server address port ws_port notebook_path =
             let notebook = Pages.generate_notebook_html 
                 ~base_path:""
                 ~title:"IOCaml-Notebook" ~path:notebook_path 
-                ~notebook_guid:guid ~kernel:!iocamljs_kernel
+                ~notebook_guid:guid ~kernel:iocaml_kernel
             in
             Kernel.M.dump_state !verbose;
             Server.respond_string ~status:`OK ~headers:header_html ~body:notebook ()
@@ -496,8 +514,7 @@ let () =
       (Files.create_static_site 
         ~to_dir:!static_site_path
         ~notebook_path ~notebook_filename:file_to_open
-        ~iocamljs_kernel_path:!iocamljs_kernel_file_path
-        ~iocamljs_kernel:!iocamljs_kernel
+        ~iocaml_kernel:iocaml_kernel
         ~base_path:!static_site_base_path)
 
 
