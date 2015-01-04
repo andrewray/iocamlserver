@@ -20,12 +20,13 @@ let address = ref "127.0.0.1"
 let verbose = ref 0
 let file_or_path = ref ""
 
+let tutorial = ref false
+
 let static_file_path = ref ""
 let serve_uri_path = ref []
 let serve_file_path = ref []
 
 let iocamljs_kernel = ref ""
-let iocamljs_kernel_file_path = ref ""
 
 let browser = ref Config.default_browser_command
 
@@ -50,6 +51,7 @@ let static_site_base_path = ref ""
 
 let () = 
     Arg.(parse (align [
+        "-tutorial", Set(tutorial), " show IOCaml tutorial notebook";
         "-ip", Set_string(address), "<ip-address> ip address of server";
         "-js", Set_string(iocamljs_kernel), "<kernel> use iocamljs kernel";
         "-static", Set_string(static_file_path), "<dir> serve static files from dir";
@@ -76,7 +78,15 @@ let () =
     (fun s -> file_or_path := s)
     "iocaml [options] [file-or-path]")
 
-let notebook_path, file_to_open = Files.file_or_path !file_or_path 
+let notebook_path, file_to_open = 
+  if !tutorial then begin
+    let name = "iocaml_tutorial.ipynb" in
+    let _ = Files.using_out name 
+      (fun file -> output_string file (Files.tutorial_notebook ()))
+    in
+    "./", name
+  end else 
+    Files.file_or_path !file_or_path 
 
 let filename name = Filename.(concat notebook_path name)
 
@@ -96,13 +106,6 @@ let share_dir () =
   with
   | _ -> failwith ("could not query opam for share directory")
 
-(* process -js option and set up static file path *)
-let () = 
-  if !iocamljs_kernel <> "" then begin
-    let share = share_dir () in
-    iocamljs_kernel_file_path := share ^ "/iocamljs-kernel/profile"
-  end
-
 let iocaml_kernel =
   match !iocamljs_kernel with
   (* standard byte code kernel, communicated over websockets.  uses kernel.js from ipython *)
@@ -119,7 +122,6 @@ let () =
       printf "notebook path: '%s'\n" notebook_path;
       printf "file to open: '%s'\n" file_to_open;
       printf "extra static dir: '%s'\n" !static_file_path;
-      printf "js kernel dir: '%s'\n" !iocamljs_kernel_file_path;
       List.iter (fun (u,p) ->
         printf "serve uri: '%s' -> '%s'\n" u p) serve_files;
       (match iocaml_kernel with
@@ -250,13 +252,6 @@ let serve_from uri path next =
       next ()
   else
     next ()
-
-let serve_static_files_old uri = 
-  let serve_from = serve_from uri in
-  serve_from !static_file_path
-    (fun () -> 
-      serve_from !iocamljs_kernel_file_path
-        (fun () -> serve_crunched_files uri))
 
 let serve_static_files uri = 
   let serve_from = serve_from uri in

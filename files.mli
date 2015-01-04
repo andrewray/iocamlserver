@@ -16,6 +16,10 @@ val new_notebook_name : string list -> string Lwt.t
 
 val empty_notebook : string -> string
 
+val tutorial_notebook : unit -> string
+
+val using_out : string -> (out_channel -> 'a) -> 'a
+
 val file_or_path : string -> string * string
 
 (** extract notebook name from json, then remove it *)

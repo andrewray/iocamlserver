@@ -64,7 +64,7 @@ let file_or_path file_or_path =
     in
     
     if Filename.check_suffix file_or_path ".ipynb" then
-        (* it the name ends in .ipynb then assume it is a file *)
+        (* if the name ends in .ipynb then assume it is a file *)
         let split s = Filename.(dirname s, basename s) in
         if Sys.file_exists file_or_path then
             if is_regular_file file_or_path then split file_or_path
@@ -195,6 +195,20 @@ let load_ipynb_for_serving path nbname =
     let json = process_lines rejoin json in
 
     return (to_string ~std:true json)
+
+
+let tutorial_notebook () = 
+  let open Yojson.Basic in
+  match Tutorial.read "tutorial.ipynb" with
+  | None -> failwith "tutorial not found"
+  | Some(data) ->
+    let json = from_string data in
+    let metadata = Util.member "metadata" json in
+
+    let json = replace_dict "metadata" (replace_dict "name" (`String "tutorial") metadata) json in
+    let json = process_lines rejoin json in
+
+    to_string ~std:true json
 
 (*************************************************************)
 (* static site generation *)
