@@ -2,8 +2,8 @@
 <files.ml{,i}> : syntax(camlp4o), package(lwt.syntax,yojson,unix)
 <kernel.ml{,i}> : syntax(camlp4o), package(lwt.syntax,iocaml-kernel,uuidm,yojson)
 <uri_paths.ml{,i}> : package(lwt,re)
-<bridge.ml{,i}> : syntax(camlp4o), package(lwt.syntax,uri,websocket,iocaml-kernel,yojson)
-<iocamlserver.ml>: syntax(camlp4o), package(findlib,cow,lwt.syntax,cohttp.lwt,websocket,iocaml-kernel,uuidm,yojson)
+<bridge.ml{,i}> : syntax(camlp4o), package(lwt.syntax,uri,websocket.lwt,iocaml-kernel,yojson)
+<iocamlserver.ml>: syntax(camlp4o), package(findlib,cow,lwt.syntax,cohttp.lwt,websocket.lwt,iocaml-kernel,uuidm,yojson)
 
-<iocamlserver.{byte,native}> : package(findlib,cow,lwt.unix,cohttp,websocket,iocaml-kernel,uuidm,yojson)
+<iocamlserver.{byte,native}> : package(findlib,cow,lwt.unix,cohttp,websocket.lwt,iocaml-kernel,uuidm,yojson)
 true: annot, bin_annot, debug, principal, strict_sequence

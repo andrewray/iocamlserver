@@ -464,11 +464,16 @@ let run_servers address notebook_path =
     let http_server = http_server address http_port ws_port notebook_path in
 
     (* websocket server *)
-    let _ =
-        let addr = Kernel.resolve_addr address ws_port in
-        Websocket.establish_server addr (Bridge.ws_init !verbose)
+    let ws_server = 
+      let uri = Uri.of_string ("http://" ^ address ^ ":" ^ string_of_int ws_port) in
+      Resolver_lwt.resolve_uri ~uri Resolver_lwt_unix.system >>= fun endp ->
+      Conduit_lwt_unix.(
+        endp_to_server ~ctx:default_ctx endp >>= fun server ->
+        Websocket_lwt.establish_standard_server ~ctx:default_ctx ~mode:server 
+          (Bridge.ws_init !verbose)
+      )
     in
-    
+
     (* start webbrowser, what about mac-osx? 'open'? *)
     let browser_command =
         if file_to_open <> "" then
@@ -483,7 +488,7 @@ let run_servers address notebook_path =
     in
     let _ = Lwt_process.open_process_none browser_command in
 
-    http_server
+    Lwt.join [http_server; ws_server]
 
 let close_kernels () = 
     (* kill all running kernels *)

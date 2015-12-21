@@ -10,8 +10,8 @@
 open Lwt
 open Iocaml_zmq
 
-type ws_stream = Websocket.Frame.t Lwt_stream.t
-type ws_push = Websocket.Frame.t option -> unit
+type ws_stream = Websocket_lwt.Frame.t Lwt_stream.t
+type ws_push = Websocket_lwt.Frame.t -> unit Lwt.t
 type ws_comm = ws_stream * ws_push 
 
 let zmq_of_ws_message data = 
@@ -53,7 +53,7 @@ let ws_of_zmq_message data =
 
 let ws_to_zmq verbose name stream socket = 
     lwt frame = Lwt_stream.next stream in
-    let data = match Websocket.Frame.content frame with None -> "" | Some(data) -> data in
+    let data = frame.Websocket_lwt.Frame.content in
     lwt () = 
         if verbose > 1 then Lwt_io.eprintf "[ws->zmq]%s: %s\n" name data 
         else return ()
@@ -69,43 +69,44 @@ let zmq_to_ws verbose name socket push =
     in
     try_lwt
         let frame = ws_of_zmq_message frames in
-        Lwt.wrap (fun () -> push (Some (Websocket.Frame.of_string ~content:frame ()))) 
+        push (Websocket_lwt.Frame.create ~content:frame ())
     with _ -> return ()
 
 let rec ws_zmq_comms verbose name socket uri (stream,push) = 
-    (*lwt () = Lwt_io.eprintf "ws_zmq_comms: %s\n" name in*)
     lwt _ = zmq_to_ws verbose name socket push <?> ws_to_zmq verbose name stream socket in
     ws_zmq_comms verbose name socket uri (stream,push)
 
-let ws_init verbose uri (stream,push) = 
-    try_lwt
-
-        Lwt_stream.next stream >>= fun frame ->
-            let open Kernel in
-            (* we get one special message per channel, after which it's comms time *)
-            let cookie = match Websocket.Frame.content frame with None -> "" | Some(data) -> data in
-            lwt () = if verbose > 1 then Lwt_io.eprintf "cookie:[%i] %s\n" (String.length cookie) cookie else return () in
-            (* parse the uri to find out which socket we want *)
-            let get guid = 
-                match M.kernel_of_kernel_guid guid with
-                | None -> fail (Failure ("cant find kernel: " ^ guid))
-                | Some(x) -> return x
-            in
-            match_lwt Uri_paths.decode_ws (Uri.path uri) with
-            | `Ws_shell(guid) -> 
-                get guid >>= fun k -> ws_zmq_comms verbose "shell" (k.shell()) uri (stream,push)
-            | `Ws_stdin(guid) ->                                      
-                get guid >>= fun k -> ws_zmq_comms verbose "stdin" (k.stdin()) uri (stream,push)
-            | `Ws_iopub(guid) ->                                      
-                get guid >>= fun k -> ws_zmq_comms verbose "iopub" (k.iopub()) uri (stream,push)
-            | `Error_not_found -> 
-                Lwt.fail (Failure "invalid websocket url")
-    
-    with 
-    | x ->
-      lwt () = 
-        if verbose > 0 then Lwt_io.eprintf "ws_init failed with %s\n" (Printexc.to_string x)
-        else return ()
+let ws_init verbose id req recv send = 
+  let open Websocket_lwt in
+  let open Kernel in
+  try_lwt
+    recv () >>= fun cookie ->
+      (* we get one special message per channel, after which it's comms time *)
+      let cookie = cookie.Frame.content in
+      lwt () = if verbose > 1 then Lwt_io.eprintf "cookie:[%i] %s\n" (String.length cookie) cookie else return () in
+      (* parse the uri to find out which socket we want *)
+      let get guid = 
+          match M.kernel_of_kernel_guid guid with
+          | None -> fail (Failure ("cant find kernel: " ^ guid))
+          | Some(x) -> return x
       in
-      return ()
+      let uri = req.Cohttp.Request.uri in
+      let stream = Websocket_lwt.mk_frame_stream recv in
+      match_lwt Uri_paths.decode_ws (Uri.path uri) with
+      | `Ws_shell(guid) -> 
+          get guid >>= fun k -> ws_zmq_comms verbose "shell" (k.shell()) uri (stream,send)
+      | `Ws_stdin(guid) ->                                      
+          get guid >>= fun k -> ws_zmq_comms verbose "stdin" (k.stdin()) uri (stream,send)
+      | `Ws_iopub(guid) ->                                      
+          get guid >>= fun k -> ws_zmq_comms verbose "iopub" (k.iopub()) uri (stream,send)
+      | `Error_not_found -> 
+          Lwt.fail (Failure "invalid websocket url")
+
+  with 
+  | x ->
+    lwt () = 
+      if verbose > 0 then Lwt_io.eprintf "ws_init failed with %s\n" (Printexc.to_string x)
+      else return ()
+    in
+    return ()
 

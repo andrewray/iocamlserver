@@ -10,8 +10,8 @@
 
 open Iocaml_zmq
 
-type ws_stream = Websocket.Frame.t Lwt_stream.t
-type ws_push = Websocket.Frame.t option -> unit
+type ws_stream = Websocket_lwt.Frame.t Lwt_stream.t
+type ws_push = Websocket_lwt.Frame.t -> unit Lwt.t
 type ws_comm = ws_stream * ws_push 
 
 val zmq_of_ws_message : string -> string list
@@ -24,5 +24,8 @@ val zmq_to_ws : int -> string -> 'a Lwt_zmq.Socket.t -> ws_push -> unit Lwt.t
 
 val ws_zmq_comms : int -> string -> 'a Lwt_zmq.Socket.t -> Uri.t -> ws_comm -> unit Lwt.t
 
-val ws_init : int -> Uri.t -> ws_comm -> unit Lwt.t
+val ws_init : int -> 
+  (int ->
+    Cohttp.Request.t ->
+    (unit -> Websocket_lwt.Frame.t Lwt.t) -> (Websocket_lwt.Frame.t -> unit Lwt.t) -> unit Lwt.t) 
 
