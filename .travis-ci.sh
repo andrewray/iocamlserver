@@ -10,7 +10,7 @@ case "$OCAML_VERSION,$OPAM_VERSION" in
 *) echo Unknown $OCAML_VERSION,$OPAM_VERSION; exit 1 ;;
 esac
 
-PKG=iocaml.999.9.9
+PKG=iocaml
 
 # install ocaml compilers
 echo "yes" | sudo add-apt-repository ppa:$ppa
@@ -22,7 +22,7 @@ export OPAMYES=1
 opam init 
 eval `opam config env`
 
-opam pin add $PKG .
+opam pin add -n $PKG .
 
 # install external deps
 DEPEXT=`opam install $PKG -e ubuntu`
