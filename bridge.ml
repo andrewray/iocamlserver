@@ -90,7 +90,7 @@ let ws_init verbose id req recv send =
           | None -> fail (Failure ("cant find kernel: " ^ guid))
           | Some(x) -> return x
       in
-      let uri = req.Cohttp.Request.uri in
+      let uri = Cohttp.Request.uri req in
       let stream = Websocket_lwt.mk_frame_stream recv in
       match_lwt Uri_paths.decode_ws (Uri.path uri) with
       | `Ws_shell(guid) -> 
