@@ -22,13 +22,11 @@ export OPAMYES=1
 opam init 
 eval `opam config env`
 
+# pin package in local dir
 opam pin add -n $PKG .
 
 # install external deps
-DEPEXT=`opam install $PKG -e ubuntu`
-if [ "$DEPEXT" != "" ]; then
-sudo apt-get install -qq $DEPEXT
-fi
+opam depext $PKG
 
 # install package 
 opam install $PKG 
