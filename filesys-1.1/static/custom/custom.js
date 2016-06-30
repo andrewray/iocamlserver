@@ -26,7 +26,7 @@ $([IPython.events]).on('app_initialized.NotebookApp', function(){
         'and as assert begin class constraint do done downto else end ' +
         'exception extern external for fun function functor if ' +
         'in include inherit inherit initializer lazy let match method ' +
-        'method module mutable new of open open or private rec sig struct ' +
+        'method module mutable new object of open open or private rec sig struct ' +
         'then to try type val val virtual when while with'
     ;
 
