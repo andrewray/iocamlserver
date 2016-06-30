@@ -6,6 +6,7 @@ case "$OCAML_VERSION,$OPAM_VERSION" in
 4.00.1,1.1.0) ppa=avsm/ocaml40+opam11 ;;
 4.01.0,1.0.0) ppa=avsm/ocaml41+opam10 ;;
 4.01.0,1.1.0) ppa=avsm/ocaml41+opam11 ;;
+4.02.0,1.2.0) ppa=avsm/ocaml42+opam12 ;;
 *) echo Unknown $OCAML_VERSION,$OPAM_VERSION; exit 1 ;;
 esac
 
@@ -21,9 +22,7 @@ export OPAMYES=1
 opam init 
 eval `opam config env`
 
-# add dev repo
-opam remote add iocaml-dev git://github.com/andrewray/opam.git
-opam update
+opam pin add $PKG .
 
 # install external deps
 DEPEXT=`opam install $PKG -e ubuntu`
@@ -31,9 +30,7 @@ if [ "$DEPEXT" != "" ]; then
 sudo apt-get install -qq $DEPEXT
 fi
 
-# install package deps
-opam install $PKG --deps-only
+# install package 
+opam install $PKG 
 
-# build 
-make
 
