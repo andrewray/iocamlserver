@@ -1,0 +1,24 @@
+(jbuild_version 1)
+
+(rule
+ ((targets (tutorial.ml))
+  (deps (tutorial/tutorial.ipynb))
+  (action (run ocaml-crunch -o ${@} -m plain tutorial))))
+
+(rule
+ ((targets (filesys.ml))
+  (deps ((files_recursively_in filesys-1.1)))
+  (action (run ocaml-crunch -o ${@} -m plain filesys-1.1))))
+
+(executables
+ ((names (iocamlserver))
+  (public_names (iocaml))
+  (libraries
+   (findlib
+    mustache
+    lwt.unix
+    cohttp
+    websocket.lwt
+    iocaml-kernel
+    uuidm
+    yojson))))
