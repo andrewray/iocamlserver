@@ -1,4 +1,4 @@
-(* 
+(*
  * iocamlserver - IOCaml notebook server
  *
  *   (c) 2014 MicroJamJar Ltd
@@ -7,40 +7,39 @@
  * Description: Utilities to deal with notebooks on the file system
  *
  *)
-open Lwt
+open Lwt.Infix
 
 module SSet = Set.Make(String)
 
-let list_notebooks path = 
-    lwt h = Lwt_unix.opendir path in
-    let rec f l = 
-        try_lwt 
-            lwt n = Lwt_unix.readdir h in
-            lwt s = Lwt_unix.stat Filename.(concat path n) in
-            if Filename.check_suffix n ".ipynb" && 
-               Lwt_unix.(s.st_kind = S_REG) then 
-               f (Filename.(chop_suffix (basename n) ".ipynb")::l)
-            else
-                f l
-        with _ ->
-            return l
-    in
-    f []
+let list_notebooks path =
+  Lwt_unix.opendir path >>= fun h ->
+  let rec f l =
+    Lwt.catch (fun () ->
+        Lwt_unix.readdir h >>= fun n ->
+        Lwt_unix.stat Filename.(concat path n) >>= fun s ->
+        if Filename.check_suffix n ".ipynb" &&
+           Lwt_unix.(s.st_kind = S_REG) then
+          f (Filename.(chop_suffix (basename n) ".ipynb")::l)
+        else
+          f l
+      ) (fun _ -> Lwt.return l)
+  in
+  f []
 
-let new_notebook_name cur = 
-    let set = List.fold_right SSet.add cur SSet.empty in
-    let name = "Untitled" in
-    let rec f i = 
-        let name = name ^ string_of_int i in
-            return (SSet.mem name set)
-        >>= function
-            | true -> f (i+1)
-            | false -> return name
-    in
-    f 0
+let new_notebook_name cur =
+  let set = List.fold_right SSet.add cur SSet.empty in
+  let name = "Untitled" in
+  let rec f i =
+    let name = name ^ string_of_int i in
+    Lwt.return (SSet.mem name set)
+    >>= function
+    | true -> f (i+1)
+    | false -> Lwt.return name
+  in
+  f 0
 
 (* the json that's served for an empty notebook *)
-let empty_notebook title = 
+let empty_notebook title =
     let open Yojson.Basic in
     pretty_to_string ~std:true
         (`Assoc [
@@ -52,17 +51,17 @@ let empty_notebook title =
 let is_regular_file f = try Unix.((stat f).st_kind = S_REG) with _ -> false
 let using_out n f = let n = open_out n in let r = f n in close_out n; r
 
-let file_or_path file_or_path = 
+let file_or_path file_or_path =
     let failwith x = failwith (file_or_path ^ ": " ^ x) in
-    let file_or_path = 
-        if file_or_path = "" || file_or_path = "." || file_or_path = "./" then 
+    let file_or_path =
+        if file_or_path = "" || file_or_path = "." || file_or_path = "./" then
             Unix.getcwd ()
-        else if Filename.is_relative file_or_path then 
+        else if Filename.is_relative file_or_path then
             Filename.concat (Unix.getcwd ()) file_or_path
-        else 
+        else
             file_or_path
     in
-    
+
     if Filename.check_suffix file_or_path ".ipynb" then
         (* if the name ends in .ipynb then assume it is a file *)
         let split s = Filename.(dirname s, basename s) in
@@ -71,8 +70,8 @@ let file_or_path file_or_path =
             else failwith "expecting a file"
         else
             let path,name = split file_or_path in
-            let () = using_out file_or_path 
-                (fun file -> 
+            let () = using_out file_or_path
+                (fun file ->
                     output_string file (empty_notebook Filename.(chop_suffix name ".ipynb")))
             in
             path,name
@@ -81,7 +80,7 @@ let file_or_path file_or_path =
         if Sys.file_exists file_or_path then
             if Sys.is_directory file_or_path then
                 file_or_path, ""
-            else 
+            else
                 failwith "expecting a directory"
         else
             failwith "directory doesnt exist"
@@ -98,14 +97,14 @@ let rejoin = function
 let split = function
   | `List l -> `List l
   | `String s -> begin
-    let split str = 
+    let split str =
       let len = String.length str in
-      let rec scan pos = 
+      let rec scan pos =
         if pos = (len-1) then pos
         else if str.[pos] = '\n' then pos
         else scan (pos+1)
       in
-      let rec split start_pos = 
+      let rec split start_pos =
         if start_pos >= len then []
         else
           let end_pos = scan start_pos in
@@ -117,37 +116,37 @@ let split = function
   end
   | _ as x -> failwith ("split: expecting string or list" ^ Yojson.Basic.pretty_to_string x)
 
-let process_lines fn json = 
+let process_lines fn json =
     let open Yojson.Basic in
 
-    let failwith message json = 
+    let failwith message json =
         failwith (message ^ " : " ^ pretty_to_string json)
     in
 
-    let map_dict name json f = 
+    let map_dict name json f =
         let open Yojson.Basic in
         let el = Util.member name json in
         if el = `Null then json
         else replace_dict name (f el) json
     in
-    let map_dict_list_el name json f = 
-        map_dict name json 
-            (function 
+    let map_dict_list_el name json f =
+        map_dict name json
+            (function
                 | `List l -> `List (List.map f l)
                 | _ as x -> failwith ("map_dict_list_el: expecting list in " ^ name) x)
     in
 
-    let outputs json = 
-        List.fold_left 
+    let outputs json =
+        List.fold_left
             (fun json name -> map_dict name json fn)
             json [ "text"; "html"; "svg"; "latex"; "javascript"; "json" ]
     in
-    let cell json = 
+    let cell json =
         match Util.member "cell_type" json with
         | `String "code" ->
             (* rewrite "input" and "outputs" *)
             let json = map_dict "input" json fn in
-            map_dict_list_el "outputs" json outputs 
+            map_dict_list_el "outputs" json outputs
         | `String _ ->
             map_dict "source" json fn
         | _ as x -> failwith "invalid cell type" x
@@ -155,10 +154,10 @@ let process_lines fn json =
     let worksheet json = map_dict_list_el "cells" json cell in
     map_dict_list_el "worksheets" json worksheet
 
-let diffable_pretty_to_string json = 
+let diffable_pretty_to_string json =
   let open Easy_format in
   let rec f = function
-    | List(("[", s, c, p), t) -> 
+    | List(("[", s, c, p), t) ->
         List(("[", s, c, {p with wrap_body = `Force_breaks}), List.map f t)
     | List((o, s, c, p), t) -> List((o, s, c, p), List.map f t)
     | Label((t0, p), t1) -> Label((f t0, p), f t1)
@@ -166,7 +165,7 @@ let diffable_pretty_to_string json =
   in
   Pretty.to_string (f (Yojson.Basic.pretty_format ~std:true json))
 
-let prepare_ipynb_for_saving no_split_lines data = 
+let prepare_ipynb_for_saving no_split_lines data =
     let open Yojson.Basic in
     let json = from_string data in
 
@@ -174,30 +173,28 @@ let prepare_ipynb_for_saving no_split_lines data =
     let name = Util.member "name" metadata in
     let filename = Util.to_string name in
 
-    (* rewrite the json with an empty notebook name *) 
+    (* rewrite the json with an empty notebook name *)
     let json = replace_dict "metadata" (replace_dict "name" (`String "") metadata) json in
-    let json = 
-      if no_split_lines then to_string ~std:true json 
-      else diffable_pretty_to_string (process_lines split json) 
+    let json =
+      if no_split_lines then to_string ~std:true json
+      else diffable_pretty_to_string (process_lines split json)
     in
 
     filename, json
 
-let load_ipynb_for_serving path nbname = 
+let load_ipynb_for_serving path nbname =
     let open Yojson.Basic in
-    lwt data = 
-        Lwt_io.(with_file ~mode:input (path (nbname ^ ".ipynb")) read) 
-    in
+    Lwt_io.(with_file ~mode:input (path (nbname ^ ".ipynb")) read) >>= fun data ->
     let json = from_string data in
     let metadata = Util.member "metadata" json in
 
     let json = replace_dict "metadata" (replace_dict "name" (`String nbname) metadata) json in
     let json = process_lines rejoin json in
 
-    return (to_string ~std:true json)
+    Lwt.return (to_string ~std:true json)
 
 
-let tutorial_notebook () = 
+let tutorial_notebook () =
   let open Yojson.Basic in
   match Tutorial.read "tutorial.ipynb" with
   | None -> failwith "tutorial not found"
@@ -213,8 +210,8 @@ let tutorial_notebook () =
 (*************************************************************)
 (* static site generation *)
 
-let paths fln = 
-  let rec paths lst fln = 
+let paths fln =
+  let rec paths lst fln =
     let dir = Filename.dirname fln in
     match lst with
     | prev_dir :: tl when prev_dir = dir -> lst
@@ -222,28 +219,28 @@ let paths fln =
   in
   paths [fln] fln
 
-let create_dir_for_file to_file = 
+let create_dir_for_file to_file =
   let to_dir = Filename.dirname to_file in
   let to_paths = paths to_dir in
-  let create_dir d = 
-    try 
+  let create_dir d =
+    try
       if Sys.is_directory d then ()
       else failwith ("not a directory: " ^ d)
     with Sys_error _ -> begin
-      try Unix.mkdir d 0o777 
+      try Unix.mkdir d 0o777
       with _ -> failwith ("couldn't make directory: " ^ d)
     end
   in
   List.iter create_dir to_paths
 
-let write_file data to_file = 
+let write_file data to_file =
   let f = open_out_bin to_file in
   output_string f data;
   close_out f
 
-let copy_static to_dir = 
+let copy_static to_dir =
   let files = Filesys.file_list in
-  let write_static_file from_file = 
+  let write_static_file from_file =
     let to_file = Filename.concat to_dir from_file in
     (* create dir if it doesn't exist already *)
     create_dir_for_file to_file;
@@ -256,16 +253,16 @@ let copy_static to_dir =
   let () = Printf.printf "ok\n%!" in
   ()
 
-let copy_js_kernel to_dir iocaml_kernel = 
+let copy_js_kernel to_dir iocaml_kernel =
   let mk_kernel_name t = "kernel." ^ t ^ ".js" in
   let spath = "static/services/kernels/js" in
-  let in_file = 
+  let in_file =
     match iocaml_kernel with
     | `byte_code_kernel -> failwith "you must specify a javascript kernel"
-    | `js_kernel(p, t) -> Filename.concat p (Filename.concat spath (mk_kernel_name t)) 
+    | `js_kernel(p, t) -> Filename.concat p (Filename.concat spath (mk_kernel_name t))
     | `js_kernel_file f -> f
   in
-  let out_file = 
+  let out_file =
     match iocaml_kernel with
     | `byte_code_kernel -> failwith "you must specify a javascript kernel"
     | `js_kernel(p, t) -> Filename.concat to_dir (Filename.concat spath (mk_kernel_name t))
@@ -282,14 +279,14 @@ let copy_js_kernel to_dir iocaml_kernel =
       output out_file buf 0 len;
       copy ()
     end
-  in 
+  in
   let () = copy () in
   let () = Printf.printf "ok\n%!" in
   ()
 
-let get_notebook_list notebook_path filename = 
+let get_notebook_list notebook_path filename =
   let () = Printf.printf "getting notebook list...%!" in
-  let nb = 
+  let nb =
     if filename <> "" then
       (* just the 1 notebook, as specified on the commandline.  check it exists *)
       let notebook_filename = Filename.concat notebook_path filename in
@@ -298,7 +295,7 @@ let get_notebook_list notebook_path filename =
     else
       (* find all notebooks in given directory *)
       let dirh = Unix.opendir notebook_path in
-      let rec f () = 
+      let rec f () =
         match (try Some( Unix.readdir dirh ) with _ -> None) with
         | None -> []
         | Some(x) -> (Filename.concat notebook_path x) :: f ()
@@ -313,14 +310,14 @@ let get_notebook_list notebook_path filename =
   let () = Printf.printf "ok\n%!" in
   nb
 
-let create_notebook_html to_dir base_path js_kernel notebook_name = 
+let create_notebook_html to_dir base_path js_kernel notebook_name =
   let () = Printf.printf "creating html for %s...%!" notebook_name in
   let path = base_path ^ "/notebooks" in
   let notebook_guid = Filename.basename notebook_name in
-  let html = Pages.generate_notebook_html 
+  let html = Pages.generate_notebook_html
     ~base_path ~title:"IOCaml-Notebook" ~path ~notebook_guid ~kernel:js_kernel
   in
-  let html_file_name = 
+  let html_file_name =
     let html_file = Filename.(chop_suffix notebook_guid ".ipynb") ^ ".html" in
     Filename.(concat to_dir html_file)
   in
@@ -330,18 +327,18 @@ let create_notebook_html to_dir base_path js_kernel notebook_name =
   let () = Printf.printf "ok\n%!" in
   ()
 
-let copy_ipynb to_dir notebook_name = 
+let copy_ipynb to_dir notebook_name =
   let () = Printf.printf "copying notebook %s...%!" notebook_name in
   (* load the notebook (into servable format) *)
   let notebook_dir = Filename.dirname notebook_name in
   let notebook_file_name = Filename.basename notebook_name in
-  lwt notebook = 
+  let notebook =
     let file = Filename.(chop_suffix notebook_file_name ".ipynb") in
-    load_ipynb_for_serving (Filename.concat notebook_dir) file
-  in
+    load_ipynb_for_serving (Filename.concat notebook_dir) file in
+  notebook >>= fun notebook ->
   (* save the notebook *)
-  let output_notebook_file_name = 
-    Filename.(concat to_dir (concat "notebooks" notebook_file_name)) 
+  let output_notebook_file_name =
+    Filename.(concat to_dir (concat "notebooks" notebook_file_name))
   in
   let () = create_dir_for_file output_notebook_file_name in
   let f = open_out output_notebook_file_name in
@@ -350,13 +347,12 @@ let copy_ipynb to_dir notebook_name =
   let () = Printf.printf "ok\n%!" in
   Lwt.return ()
 
-let create_static_site 
-  ~to_dir ~notebook_path ~notebook_filename 
-  ~iocaml_kernel 
-  ~base_path = 
+let create_static_site
+  ~to_dir ~notebook_path ~notebook_filename
+  ~iocaml_kernel
+  ~base_path =
   let () = copy_static to_dir in
   let () = copy_js_kernel to_dir iocaml_kernel in
   let notebooks = get_notebook_list notebook_path notebook_filename in
   let () = List.iter (create_notebook_html to_dir base_path iocaml_kernel) notebooks in
-  Lwt_list.iter_s (copy_ipynb to_dir) notebooks 
-
+  Lwt_list.iter_s (copy_ipynb to_dir) notebooks
