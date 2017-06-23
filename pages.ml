@@ -543,16 +543,15 @@ let generate_notebook_html ~base_path ~title ~path ~notebook_guid ~kernel =
   "<!DOCTYPE HTML>\n" ^ page
 
 let generate_dashboard_html ~path =
-  let static_url x = "/static/" ^ x in
   let base_project_url = "/" in
   let data_base_project_url = "/" in
   let data_base_kernel_url = "/" in
   let body_class = "" in
 
-  let style = dashboard_stylesheet static_url in
+  let style = dashboard_stylesheet in
   let header = empty in
   let site = dashboard_site path in
-  let script = dashboard_scripts static_url in
+  let script = dashboard_scripts in
 
   let page = page
       "IOCaml Dashboard" base_project_url
