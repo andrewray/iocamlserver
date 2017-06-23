@@ -12,6 +12,7 @@ build-test: [["jbuilder" "runtest" "-p" name "-j" jobs]]
 depends: [
   "jbuilder" {build}
   "uuidm"
+  "mustache"
   "yojson"
   "cow" {< "2.0.0"}
   "lwt" {>= "2.4"}
