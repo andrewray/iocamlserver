@@ -10,11 +10,10 @@ build: [
 ]
 build-test: [["jbuilder" "runtest" "-p" name "-j" jobs]]
 depends: [
-  "jbuilder" {build}
+  "jbuilder" {build & >= "1.0+beta10"}
   "uuidm"
   "mustache"
   "yojson"
-  "cow" {< "2.0.0"}
   "lwt" {>= "2.4"}
   "websocket" {>= "2.0"}
   "cohttp" {>= "0.21.0"}
@@ -24,5 +23,5 @@ depends: [
   "iocaml-kernel" {= "0.4.8"}
   "iocamljs-kernel" {= "0.4.8"}
 ]
-available: [ ocaml-version >= "4.02.0"  ]
+available: [ ocaml-version >= "4.02.3" ]
 
