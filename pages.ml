@@ -1,4 +1,4 @@
-(* 
+(*
  * iocamlserver - IOCaml notebook server
  *
  *   (c) 2014 MicroJamJar Ltd
@@ -11,7 +11,7 @@
 (* see ipython/html/templates/page.html etc *)
 
 (*
- 
+
     Cow uses xmlm which is a XML codec.  We want to write HTML5.
     If you have something like;
 
@@ -21,7 +21,7 @@
 
     <script .../>
 
-    Thats quite proper XML but not HTML5 in which, according to the spec, 
+    Thats quite proper XML but not HTML5 in which, according to the spec,
     the trailing '/' is silently dropped.  This buggers up the document
     structure as there is no end tag, unless its a so called void element
     in which case there should be no end tag at all.  In those cases the
@@ -31,61 +31,75 @@
     and closing tags and xmlm will not rewrite it to a self closing tag.
 
     These are the void elements where we are OK.
-        area, base, br, col, command, embed, hr, img, input, 
+        area, base, br, col, command, embed, hr, img, input,
         keygen, link, meta, param, source, track, wbr
 
     We have problems with these tags below and I've bodged the ones I
     could find.
          script, div and li
 
-    A not unreasonable approach might be to rewrite this in XHTML at 
+    A not unreasonable approach might be to rewrite this in XHTML at
     some point.
-    
+
 *)
 
-open Cow
+let empty = {html| |html}
 
-let empty = <:html< >>
-
-let page 
-    title 
-    base_project_url static_url 
-    data_project 
-    data_base_project_url 
-    data_base_kernel_url 
-    data_notebook_id 
+let page
+    title
+    base_project_url
+    data_project
+    data_base_project_url
+    data_base_kernel_url
+    data_notebook_id
     body_class
-    stylesheet header site script = 
-
-<:html<
+    stylesheet
+    header
+    site
+    script =
+  let vars =
+    `O [ "title", `String title
+       ; "base_project_url", `String base_project_url
+       ; "data_project", `String data_project
+       ; "data_base_project_url", `String data_base_project_url
+       ; "data_base_kernel_url", `String data_base_kernel_url
+       ; "data_notebook_id", `String data_notebook_id
+       ; "body_class", `String body_class
+       ; "stylesheet", `String stylesheet
+       ; "header", `String header
+       ; "site", `String site
+       ; "script", `String script
+       ] in
+  let template = Mustache.of_string
+  {html|
 
 <html>
 <head>
     <meta charset="utf-8"></meta>
-    <title>$str:title$</title>
-    <link rel="shortcut icon" type="image/x-icon" href=$str:static_url "base/images/favicon.ico"$ />
+    <title>{{title}}</title>
+    <link rel="shortcut icon" type="image/x-icon" href=/static/base/images/favicon.ico />
     <meta http-equiv="X-UA-Compatible" content="chrome=1" />
-    <link rel="stylesheet" href=$str:static_url "components/jquery-ui/themes/smoothness/jquery-ui.min.css"$ type="text/css" />
+    <link rel="stylesheet" href=/static/components/jquery-ui/themes/smoothness/jquery-ui.min.css type="text/css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- XXX or less -->
-    $stylesheet$
-    <link rel="stylesheet" href=$str:static_url "custom/custom.css" $ type="text/css" />
-    <script src=$str:static_url "components/requirejs/require.js"$ type="text/javascript" charset="utf-8"> </script>
+    {{{stylesheet}}}
+    <link rel="stylesheet" href=/static/custom/custom.css type="text/css" />
+    <script src=/static/components/requirejs/require.js type="text/javascript" charset="utf-8"> </script>
 
     <script>
       require.config({
-          baseUrl: '$str:static_url ""$',
+          baseUrl: '/static/',
       });
     </script>
 
 </head>
 
-<body 
-    data-project=$str:data_project$
-    data-base-project-url=$str:data_base_project_url$
-    data-base-kernel-url=$str:data_base_kernel_url$
-    data-notebook-id=$str:data_notebook_id$
-    class=$str:body_class$
+<body
+    data-project={{data_project}}
+    data-base-project-url={{data_base_project_url}}
+    data-base-kernel-url={{data_base_kernel_url}}
+    data-notebook-id={{data_notebook_id}}
+    class={{body_class}}
 >
 <noscript>
     <div id='noscript'>
@@ -98,53 +112,55 @@ let page
     <div class="navbar-inner navbar-nobg">
         <div class="container">
             <div id="ipython_notebook" class="nav brand pull-left">
-              <a href="$str:base_project_url$" alt='dashboard'>
-                    <img src=$str:static_url "base/images/ipynblogo.png"$ 
+              <a href="{{base_project_url}}" alt='dashboard'>
+                    <img src="/static/base/images/ipynblogo.png"
                          alt='IPython Notebook'/>
                 </a>
             </div>
             <!-- XXX login-widget -->
-            $header$
+            {{header}}
         </div>
     </div>
 </div>
 
-<div id="site"> 
-    $site$
+<div id="site">
+  {{{site}}}
 </div>
 
-<script src=$str:static_url "components/jquery/jquery.min.js"$ 
+<script src="/static/components/jquery/jquery.min.js"
         type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "components/jquery-ui/ui/minified/jquery-ui.min.js"$
+<script src="/static/components/jquery-ui/ui/minified/jquery-ui.min.js"
         type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "components/bootstrap/bootstrap/js/bootstrap.min.js"$
+<script src="/static/components/bootstrap/bootstrap/js/bootstrap.min.js"
         type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "base/js/namespace.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "base/js/page.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "auth/js/loginwidget.js"$ type="text/javascript" charset="utf-8"> </script>
+<script src="/static/base/js/namespace.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/base/js/page.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/auth/js/loginwidget.js" type="text/javascript" charset="utf-8"> </script>
 
 <!-- XXX if use_less -->
-$script$
-<script src=$str:static_url "custom/custom.js"$ type="text/javascript" charset="utf-8"> </script>
+{{{script}}}
+<script src="/static/custom/custom.js" type="text/javascript" charset="utf-8"> </script>
 
 </body>
 
 </html>
->>
+|html} in Mustache.render template vars
 
-let notebook_stylesheet mathjax_url static_url = 
-    let mathjax_url' = mathjax_url ^ "?config=TeX-AMS_HTML-full&delayStartupUntil=configured" in 
-<:html<
+let notebook_stylesheet mathjax_url static_url =
+  let mathjax_url' = mathjax_url ^ "?config=TeX-AMS_HTML-full&delayStartupUntil=configured" in
+  let vars = `O ["mathjax_url", `String mathjax_url'] in
+  let template = Mustache.of_string
+  {html|
 
-<script type="text/javascript" 
-        src=$str:mathjax_url'$
+<script type="text/javascript"
+        src={{mathjax_url}}
         charset="utf-8">
 </script>
 
 <script type="text/javascript">
 // MathJax disabled, set as null to distingish from *missing* MathJax,
 // where it will be undefined, and should prompt a dialog later.
-window.mathjax_url = '$str:mathjax_url$';
+window.mathjax_url = '{{mathjax_url}}';
 </script>
 <!--
 <script type="text/javascript">
@@ -152,32 +168,32 @@ window.mathjax_url = '';
 </script>
 -->
 
-<link rel="stylesheet" href=$str:static_url "components/codemirror/lib/codemirror.css"$ />
-<link rel="stylesheet" href=$str:static_url "style/style.min.css"$ type="text/css"/>
-<link rel="stylesheet" href=$str:static_url "notebook/css/override.css"$ type="text/css" />
->>
+<link rel="stylesheet" href="/static/components/codemirror/lib/codemirror.css" />
+<link rel="stylesheet" href="/static/style/style.min.css" type="text/css"/>
+<link rel="stylesheet" href="/static/notebook/css/override.css" type="text/css" />
+|html} in Mustache.render template vars
 
-let notebook_header = 
-<:html<
+let notebook_header =
+  {html|
 <span id="save_widget" class="nav pull-left">
     <span id="notebook_name"> </span>
     <span id="checkpoint_status"> </span>
     <span id="autosave_status"> </span>
 </span>
->>
+|html}
 
-let notebook_site online js_kernel = 
-  let file_menu = 
+let notebook_site online js_kernel =
+  let file_menu =
     if online then
-      <:html<
+      {html|
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
             <ul class="dropdown-menu">
               <li id="download_ipynb"><a href="#">Download Notebook (.ipynb)</a></li>
             </ul>
         </li>
-      >>
+      |html}
     else
-      <:html<
+      {html|
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
             <ul class="dropdown-menu">
                 <li id="new_notebook"><a href="#">New</a></li>
@@ -206,33 +222,37 @@ let notebook_site online js_kernel =
                     </ul>
                 </li>
                 <li class="divider"> </li>
-                
+
                 <li id="kill_and_exit"><a href="#" >Close and halt</a></li>
             </ul>
         </li>
-      >>
+      |html}
   in
-  let kernel_menu = 
-    if js_kernel then 
-      <:html< >>
+  let kernel_menu =
+    if js_kernel then
+      {html| |html}
     else
-      <:html<
+      {html|
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Kernel</a>
             <ul class="dropdown-menu">
                 <li id="int_kernel"><a href="#">Interrupt</a></li>
                 <li id="restart_kernel"><a href="#">Restart</a></li>
             </ul>
         </li>
-      >>
+      |html}
   in
-<:html<
+  let vars =
+    `O [ "file_menu", `String file_menu
+       ; "kernel_menu", `String kernel_menu ] in
+  let template = Mustache.of_string
+  {html|
 <div id="menubar-container" class="container">
 <div id="menubar">
 <div class="navbar">
   <div class="navbar-inner">
     <div class="container">
     <ul id="menus" class="nav">
-        $file_menu$
+        {{{file_menu}}}
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
             <ul class="dropdown-menu">
                 <li id="cut_cell"><a href="#">Cut Cell</a></li>
@@ -299,7 +319,7 @@ let notebook_site online js_kernel =
                 </li>
             </ul>
         </li>
-        $kernel_menu$
+        {{{kernel_menu}}}
         <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Help</a>
             <ul class="dropdown-menu">
 
@@ -356,90 +376,91 @@ let notebook_site online js_kernel =
 
 </div>
 <div id='tooltip' class='ipython_tooltip' style='display:none'> </div>
->>
+|html} in
+  Mustache.render template vars
 
 let notebook_scripts static_url kernel =
-    let kernel = 
-      let kpath = "services/kernels/js/kernel" in
-      static_url 
-        (match kernel with
-        | `byte_code_kernel | `js_kernel_file(_) -> kpath ^ ".js"
-        | `js_kernel(_, t) -> kpath ^ "." ^ t ^ ".js")
-    in
-<:html<
-<script src=$str:static_url "components/codemirror/lib/codemirror.js"$ charset="utf-8"> </script>
+  let kernel =
+    let kpath = "services/kernels/js/kernel" in
+    static_url
+      (match kernel with
+       | `byte_code_kernel | `js_kernel_file(_) -> kpath ^ ".js"
+       | `js_kernel(_, t) -> kpath ^ "." ^ t ^ ".js")
+  in
+  let vars = `O ["kernel", `String kernel] in
+  let template = Mustache.of_string
+    {html|
+<script src="/static/components/codemirror/lib/codemirror.js" charset="utf-8"> </script>
 <script type="text/javascript">
-    CodeMirror.modeURL = '$str:static_url "components/codemirror/mode/%N/%N.js"$';
+    CodeMirror.modeURL = '"/static/components/codemirror/mode/%N/%N.js"';
 </script>
-<script src=$str:static_url "components/codemirror/addon/mode/loadmode.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/addon/mode/multiplex.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/addon/mode/overlay.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/addon/edit/matchbrackets.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/addon/comment/comment.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/htmlmixed/htmlmixed.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/xml/xml.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/javascript/javascript.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/css/css.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/rst/rst.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/markdown/markdown.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/gfm/gfm.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "components/codemirror/mode/python/python.js"$ charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/codemirror-ipython.js"$ charset="utf-8"> </script>
+<script src="/static/components/codemirror/addon/mode/loadmode.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/addon/mode/multiplex.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/addon/mode/overlay.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/addon/edit/matchbrackets.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/addon/comment/comment.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/htmlmixed/htmlmixed.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/xml/xml.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/javascript/javascript.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/css/css.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/rst/rst.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/markdown/markdown.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/gfm/gfm.js" charset="utf-8"> </script>
+<script src="/static/components/codemirror/mode/python/python.js" charset="utf-8"> </script>
+<script src="/static/notebook/js/codemirror-ipython.js" charset="utf-8"> </script>
 
-<script src=$str:static_url "components/highlight.js/build/highlight.pack.js"$ charset="utf-8"> </script>
+<script src="/static/components/highlight.js/build/highlight.pack.js" charset="utf-8"> </script>
 
-<script src=$str:static_url "dateformat/date.format.js"$ charset="utf-8"> </script>
+<script src="/static/dateformat/date.format.js" charset="utf-8"> </script>
 
-<script src=$str:static_url "base/js/events.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "base/js/utils.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "base/js/dialog.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/layoutmanager.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/mathjaxutils.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/outputarea.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/cell.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/celltoolbar.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/codecell.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/completer.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/textcell.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:kernel$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/savewidget.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/quickhelp.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/pager.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/menubar.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/toolbar.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/maintoolbar.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/notebook.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/notificationwidget.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/notificationarea.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/tooltip.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/config.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
+<script src="/static/base/js/events.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/base/js/utils.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/base/js/dialog.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/layoutmanager.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/mathjaxutils.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/outputarea.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/cell.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/celltoolbar.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/codecell.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/completer.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/textcell.js" type="text/javascript" charset="utf-8"> </script>
+<script src={{{kernel}}} type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/savewidget.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/quickhelp.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/pager.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/menubar.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/toolbar.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/maintoolbar.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/notebook.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/notificationwidget.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/notificationarea.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/tooltip.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/config.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/main.js" type="text/javascript" charset="utf-8"> </script>
 
-<script src=$str:static_url "notebook/js/contexthint.js"$ charset="utf-8"> </script>
+<script src="/static/notebook/js/contexthint.js" charset="utf-8"> </script>
 
-<script src=$str:static_url "notebook/js/celltoolbarpresets/default.js"$ type="text/javascript" charset="utf-8"> </script>
-<script src=$str:static_url "notebook/js/celltoolbarpresets/slideshow.js"$ type="text/javascript" charset="utf-8"> </script>
->>
+<script src="/static/notebook/js/celltoolbarpresets/default.js" type="text/javascript" charset="utf-8"> </script>
+<script src="/static/notebook/js/celltoolbarpresets/slideshow.js" type="text/javascript" charset="utf-8"> </script>
+|html} in Mustache.render template vars
 
-let dashboard_site path = 
-    let split_path = 
-        let open Re in (* requires path to start with a / *)
-        let sl = char '/' in
-        let path_comp = compile (seq [ sl; group (rep (compl [sl])) ]) in
-        let rec f pos = 
-            try 
-                let x = exec ~pos path_comp path in
-                get x 1 :: f (snd (get_ofs x 0))
-            with Not_found -> []
-        in
-        f 0
+let dashboard_site path =
+  let split_path =
+    let open Re in (* requires path to start with a / *)
+    let sl = char '/' in
+    let path_comp = compile (seq [ sl; group (rep (compl [sl])) ]) in
+    let rec f pos =
+      try
+        let x = exec ~pos path_comp path in
+        get x 1 :: f (snd (get_ofs x 0))
+      with Not_found -> []
     in
-    let split_path' =
-        <:html< <li> <span>/</span></li> >> :: 
-        List.map (fun c -> <:html< <li>$str:c$ <span>/</span></li> >>) split_path 
-    in
-
-<:html<
+    f 0
+  in
+  let vars =
+    `O ["split_path", `A (List.map (fun c -> `String c) split_path)] in
+  let template = Mustache.of_string
+  {html|
 
 <div id="ipython-main-app" class="container">
   <div id="tabs" class="tabbable">
@@ -450,7 +471,7 @@ let dashboard_site path =
 
     <div class="tab-content">
       <div id="notebooks" class="tab-pane active">
-        
+
         <div id="notebook_toolbar">
           <form id='alternate_upload'  class='alternate_upload' >
             <span id="drag_info" style="position:absolute" >
@@ -468,7 +489,10 @@ let dashboard_site path =
           <div id="notebook_list_header" class="row-fluid list_header">
             <div id="project_name">
               <ul class="breadcrumb">
-                    $list:split_path'$
+                <li><span>/</span></li>
+                {{#split_path}}
+                <li>{{.}}<span>/</span></li>
+                {{/split_path}}
               </ul>
             </div>
           </div>
@@ -480,61 +504,59 @@ let dashboard_site path =
   </div>
 </div>
 
->>
+|html} in Mustache.render template vars
 
-let dashboard_stylesheet static_url = 
-<:html<
-<link rel="stylesheet" href=$str:static_url "style/style.min.css"$ type="text/css"/>
-<link rel="stylesheet" href=$str:static_url "tree/css/override.css"$ type="text/css" />
->>
+let dashboard_stylesheet =
+  {html|
+<link rel="stylesheet" href="/static/style/style.min.css" type="text/css"/>
+<link rel="stylesheet" href="/static/tree/css/override.css" type="text/css" />
+|html}
 
-let dashboard_scripts static_url = 
-<:html<
-    <script src=$str:static_url "base/js/dialog.js"$ type="text/javascript" charset="utf-8"> </script>
-    <script src=$str:static_url "tree/js/notebooklist.js"$ type="text/javascript" charset="utf-8"> </script>
-    <script src=$str:static_url "tree/js/clusterlist.js"$ type="text/javascript" charset="utf-8"> </script>
-    <script src=$str:static_url "tree/js/main.js"$ type="text/javascript" charset="utf-8"> </script>
->>
+let dashboard_scripts =
+  {html|
+    <script src="/static/base/js/dialog.js" type="text/javascript" charset="utf-8"> </script>
+    <script src="/static/tree/js/notebooklist.js" type="text/javascript" charset="utf-8"> </script>
+    <script src="/static/tree/js/clusterlist.js" type="text/javascript" charset="utf-8"> </script>
+    <script src="/static/tree/js/main.js" type="text/javascript" charset="utf-8"> </script>
+|html}
 
-let generate_notebook_html ~base_path ~title ~path ~notebook_guid ~kernel = 
-    
-    let static_url x = base_path ^ "/static/" ^ x in
-    let mathjax_url = "https://cdn.mathjax.org/mathjax/latest/MathJax.js" in
-    let base_project_url = if base_path="" then "/" else base_path in
-    let data_base_project_url = base_path ^ "/" in
-    let data_base_kernel_url = "/" in
-    let body_class = "notebook_app" in
+let generate_notebook_html ~base_path ~title ~path ~notebook_guid ~kernel =
 
-    let style = notebook_stylesheet mathjax_url static_url in
-    let header = notebook_header in
-    let site = notebook_site (base_path <> "") (kernel <> `byte_code_kernel) in
-    let script = notebook_scripts static_url kernel in
+  let static_url x = base_path ^ "/static/" ^ x in
+  let mathjax_url = "https://cdn.mathjax.org/mathjax/latest/MathJax.js" in
+  let base_project_url = if base_path="" then "/" else base_path in
+  let data_base_project_url = base_path ^ "/" in
+  let data_base_kernel_url = "/" in
+  let body_class = "notebook_app" in
 
-    let page = page 
-        title base_project_url static_url
-        path data_base_project_url data_base_kernel_url
-        notebook_guid body_class
-        style header site script
-    in
-    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
+  let style = notebook_stylesheet mathjax_url static_url in
+  let header = notebook_header in
+  let site = notebook_site (base_path <> "") (kernel <> `byte_code_kernel) in
+  let script = notebook_scripts static_url kernel in
 
-let generate_dashboard_html ~path = 
-    let static_url x = "/static/" ^ x in
-    let base_project_url = "/" in
-    let data_base_project_url = "/" in
-    let data_base_kernel_url = "/" in
-    let body_class = "" in
+  let page = page
+      title base_project_url
+      path data_base_project_url data_base_kernel_url
+      notebook_guid body_class
+      style header site script
+  in
+  "<!DOCTYPE HTML>\n" ^ page
 
-    let style = dashboard_stylesheet static_url in
-    let header = empty in
-    let site = dashboard_site path in
-    let script = dashboard_scripts static_url in
+let generate_dashboard_html ~path =
+  let base_project_url = "/" in
+  let data_base_project_url = "/" in
+  let data_base_kernel_url = "/" in
+  let body_class = "" in
 
-    let page = page 
-        "IOCaml Dashboard" base_project_url static_url
-        path data_base_project_url data_base_kernel_url
-        "" body_class
-        style header site script
-    in
-    "<!DOCTYPE HTML>\n" ^ Cow.Html.to_string page
+  let style = dashboard_stylesheet in
+  let header = empty in
+  let site = dashboard_site path in
+  let script = dashboard_scripts in
 
+  let page = page
+      "IOCaml Dashboard" base_project_url
+      path data_base_project_url data_base_kernel_url
+      "" body_class
+      style header site script
+  in
+  "<!DOCTYPE HTML>\n" ^ page
